@@ -1,0 +1,290 @@
+{% extends "base_v2.html" %}
+{% block title %}Crawl Map{% endblock %}
+{% block page_title %}Crawl Map{% endblock %}
+{% block page_subtitle %}Every URL, form, and parameter discovered{% endblock %}
+
+{% block topbar_actions %}
+<button class="btn btn-ghost btn-sm" onclick="loadAll()">
+  <span>🔄</span><span>Refresh</span>
+</button>
+{% endblock %}
+
+{% block content %}
+<input type="hidden" id="scan-id" value="{{ scan_id or '' }}">
+
+<!-- Stats overview -->
+<div class="stats-grid" id="crawl-stats-grid">
+  <div class="stat-card stat-total">
+    <div class="stat-header"><span class="stat-icon">🌐</span><span>Total URLs</span></div>
+    <div class="stat-value" id="cs-total">0</div>
+  </div>
+  <div class="stat-card stat-verified">
+    <div class="stat-header"><span class="stat-icon">🏠</span><span>Internal</span></div>
+    <div class="stat-value" id="cs-internal">0</div>
+  </div>
+  <div class="stat-card stat-info">
+    <div class="stat-header"><span class="stat-icon">🔗</span><span>External</span></div>
+    <div class="stat-value" id="cs-external">0</div>
+  </div>
+  <div class="stat-card stat-medium">
+    <div class="stat-header"><span class="stat-icon">📝</span><span>With Forms</span></div>
+    <div class="stat-value" id="cs-forms">0</div>
+  </div>
+  <div class="stat-card stat-high">
+    <div class="stat-header"><span class="stat-icon">🔧</span><span>With Params</span></div>
+    <div class="stat-value" id="cs-params">0</div>
+  </div>
+  <div class="stat-card stat-low">
+    <div class="stat-header"><span class="stat-icon">⏱️</span><span>Avg Time</span></div>
+    <div class="stat-value" id="cs-avg-time">0</div>
+    <div class="stat-trend">milliseconds</div>
+  </div>
+</div>
+
+<!-- Filter bar -->
+<div class="filter-bar">
+  <input type="text" id="search" placeholder="🔍 Filter URLs by path or title..." oninput="render()">
+  <select id="type-filter" onchange="render()">
+    <option value="">All URLs</option>
+    <option value="internal">🏠 Internal</option>
+    <option value="external">🔗 External</option>
+    <option value="with_forms">📝 With Forms</option>
+    <option value="with_params">🔧 With Parameters</option>
+    <option value="errors">⚠️ Errors (4xx/5xx)</option>
+  </select>
+  <select id="view-mode" onchange="render()">
+    <option value="tree">🌳 Tree View</option>
+    <option value="table">📋 Table View</option>
+  </select>
+  <span id="count-badge" class="count-badge">0</span>
+</div>
+
+<!-- Tree view -->
+<div class="card" id="tree-card">
+  <div class="card-header"><h2 class="card-title">🌳 Site Tree</h2></div>
+  <div class="tree" id="tree-content">
+    <div style="text-align:center;padding:40px;color:var(--text-tertiary);">
+      Loading crawl map...
+    </div>
+  </div>
+</div>
+
+<!-- Table view -->
+<div class="table-card" id="table-card" style="display:none;">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th style="width:70px;">Status</th>
+        <th>URL</th>
+        <th style="width:140px;">Type</th>
+        <th style="width:80px;">Size</th>
+        <th style="width:70px;">Depth</th>
+        <th style="width:90px;">Time</th>
+        <th style="width:100px;">Forms</th>
+      </tr>
+    </thead>
+    <tbody id="table-body">
+      <tr><td colspan="7" class="empty-cell">Loading...</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<style>
+.tree {
+  font-family: var(--font-mono); font-size: 13px;
+  background: var(--bg-input); border-radius: var(--r-md);
+  padding: 20px; max-height: 700px; overflow-y: auto;
+  border: 1px solid var(--border-subtle); line-height: 1.7;
+}
+.tree-node { padding: 2px 0; }
+.tree-node.directory { color: var(--accent); font-weight: 600; }
+.tree-node.file { color: var(--text-secondary); }
+.tree-node.file:hover { color: var(--accent); }
+.tree-node .status-code {
+  display: inline-block; padding: 1px 6px; border-radius: var(--r-sm);
+  font-size: 10px; font-weight: 700; margin-right: 8px;
+}
+.status-2xx { background: var(--success-soft); color: var(--success); }
+.status-3xx { background: var(--info-soft); color: var(--info); }
+.status-4xx { background: var(--warning-soft); color: var(--warning); }
+.status-5xx { background: var(--danger-soft); color: var(--danger); }
+.status-0 { background: var(--bg-hover); color: var(--text-tertiary); }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let CRAWL_MAP = [];
+let STATS = {};
+
+async function loadAll() {
+  const scanId = document.getElementById('scan-id').value;
+  if (!scanId) {
+    // Load from most recent scan
+    try {
+      const r = await fetch('/api/scans');
+      const data = await r.json();
+      const scans = data.scans || [];
+      if (scans.length && scans[0].id) {
+        document.getElementById('scan-id').value = scans[0].id;
+        return loadAll();
+      }
+    } catch (e) {}
+    document.getElementById('tree-content').innerHTML =
+      '<div style="text-align:center;padding:40px;color:var(--text-tertiary);">No scan selected</div>';
+    return;
+  }
+
+  try {
+    const r = await fetch('/api/v1/scans/' + scanId + '/crawl-map');
+    const data = await r.json();
+    CRAWL_MAP = data.crawl_map || [];
+    STATS = data.stats || {};
+
+    // Stats
+    document.getElementById('cs-total').textContent = STATS.total || 0;
+    document.getElementById('cs-internal').textContent = STATS.internal || 0;
+    document.getElementById('cs-external').textContent = STATS.external || 0;
+    document.getElementById('cs-forms').textContent = STATS.with_forms || 0;
+    document.getElementById('cs-params').textContent = STATS.with_params || 0;
+    document.getElementById('cs-avg-time').textContent =
+      Math.round(STATS.avg_response_time_ms || 0);
+
+    render();
+  } catch (e) {
+    document.getElementById('tree-content').innerHTML =
+      `<div style="text-align:center;padding:40px;color:var(--danger);">Error: ${esc(e.message)}</div>`;
+  }
+}
+
+function render() {
+  const q = (document.getElementById('search').value || '').toLowerCase();
+  const type = document.getElementById('type-filter').value;
+  const mode = document.getElementById('view-mode').value;
+
+  let rows = CRAWL_MAP.filter(n => {
+    if (type === 'internal' && n.is_external) return false;
+    if (type === 'external' && !n.is_external) return false;
+    if (type === 'with_forms' && (!n.forms || !n.forms.length)) return false;
+    if (type === 'with_params' && (!n.parameters || !n.parameters.length)) return false;
+    if (type === 'errors' && (!n.status || n.status < 400)) return false;
+    if (q) {
+      const hay = ((n.url||'') + ' ' + (n.title||'')).toLowerCase();
+      if (hay.indexOf(q) === -1) return false;
+    }
+    return true;
+  });
+
+  document.getElementById('count-badge').textContent =
+    `${rows.length} / ${CRAWL_MAP.length}`;
+
+  document.getElementById('tree-card').style.display =
+    mode === 'tree' ? 'block' : 'none';
+  document.getElementById('table-card').style.display =
+    mode === 'table' ? 'block' : 'none';
+
+  if (mode === 'tree') renderTree(rows);
+  else renderTable(rows);
+}
+
+function renderTree(rows) {
+  const container = document.getElementById('tree-content');
+  if (!rows.length) {
+    container.innerHTML = `<div style="text-align:center;padding:40px;color:var(--text-tertiary);">
+      No URLs to display
+    </div>`;
+    return;
+  }
+
+  const root = {};
+  rows.forEach(n => {
+    try {
+      const u = new URL(n.url);
+      const parts = u.pathname.split('/').filter(p => p);
+      let cur = root;
+      if (!parts.length) {
+        cur['/'] = cur['/'] || { _children: {} };
+        cur['/']._node = n;
+        return;
+      }
+      parts.forEach((part, i) => {
+        if (!cur[part]) cur[part] = { _children: {} };
+        if (i === parts.length - 1) cur[part]._node = n;
+        cur = cur[part]._children;
+      });
+    } catch (e) {}
+  });
+
+  container.innerHTML = renderTreeNode(root, 0, '');
+}
+
+function renderTreeNode(node, depth, path) {
+  let html = '';
+  for (const [key, val] of Object.entries(node)) {
+    if (key === '_node' || key === '_children') continue;
+    const indent = '&nbsp;&nbsp;&nbsp;&nbsp;'.repeat(depth);
+    const fullPath = path + '/' + key;
+    const hasChildren = val._children && Object.keys(val._children).length > 0;
+
+    if (hasChildren || !val._node) {
+      html += `<div class="tree-node directory">${indent}📁 ${esc(key)}/</div>`;
+      html += renderTreeNode(val._children, depth + 1, fullPath);
+    }
+    if (val._node) {
+      const s = val._node.status || 0;
+      const cls = s >= 200 && s < 300 ? 'status-2xx'
+                : s >= 300 && s < 400 ? 'status-3xx'
+                : s >= 400 && s < 500 ? 'status-4xx'
+                : s >= 500 ? 'status-5xx' : 'status-0';
+      const title = val._node.title
+        ? ` — ${esc(val._node.title.substring(0, 70))}` : '';
+      html += `<div class="tree-node file">
+        ${indent}<span class="status-code ${cls}">${s}</span>
+        <a href="${esc(val._node.url)}" target="_blank"
+           style="color:inherit;text-decoration:none;">${esc(key)}</a>${title}
+      </div>`;
+    }
+  }
+  return html;
+}
+
+function renderTable(rows) {
+  const body = document.getElementById('table-body');
+  if (!rows.length) {
+    body.innerHTML = '<tr><td colspan="7" class="empty-cell">No URLs</td></tr>';
+    return;
+  }
+  body.innerHTML = rows.slice(0, 1000).map(n => {
+    const s = n.status || 0;
+    const cls = s >= 200 && s < 300 ? 'status-2xx'
+              : s >= 300 && s < 400 ? 'status-3xx'
+              : s >= 400 && s < 500 ? 'status-4xx'
+              : s >= 500 ? 'status-5xx' : 'status-0';
+    const size = n.content_length
+      ? (n.content_length > 1024
+         ? (n.content_length / 1024).toFixed(1) + ' KB'
+         : n.content_length + ' B')
+      : '—';
+    return `<tr>
+      <td><span class="status-code ${cls}">${s || '—'}</span></td>
+      <td class="url-cell" style="font-size:11.5px;">${esc(n.url)}</td>
+      <td style="font-size:11.5px;">${esc((n.content_type || '—').split(';')[0])}</td>
+      <td style="font-size:12px;">${size}</td>
+      <td style="font-size:12px;">${n.depth || 0}</td>
+      <td style="font-size:12px;">${(n.response_time_ms || 0).toFixed(0)}ms</td>
+      <td>${n.forms && n.forms.length
+          ? '<span class="verified-badge">' + n.forms.length + '</span>'
+          : '—'}</td>
+    </tr>`;
+  }).join('');
+}
+
+function esc(s) {
+  if (s === null || s === undefined) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+loadAll();
+</script>
+{% endblock %}

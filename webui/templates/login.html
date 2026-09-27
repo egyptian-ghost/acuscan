@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sign In — AcuScan</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  background: #0a0f1c;
+  color: #f1f5f9;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 20px;
+  position: relative;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Animated background gradient */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(circle at 20% 20%, rgba(56, 189, 248, 0.15) 0%, transparent 50%),
+    radial-gradient(circle at 80% 80%, rgba(14, 165, 233, 0.15) 0%, transparent 50%),
+    radial-gradient(circle at 50% 50%, rgba(16, 185, 129, 0.05) 0%, transparent 70%);
+  animation: bgShift 15s ease-in-out infinite alternate;
+  pointer-events: none;
+  z-index: 0;
+}
+
+@keyframes bgShift {
+  0%   { transform: translate(0, 0) scale(1); }
+  50%  { transform: translate(2%, -2%) scale(1.05); }
+  100% { transform: translate(-2%, 2%) scale(1); }
+}
+
+/* Floating grid overlay */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(56, 189, 248, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(56, 189, 248, 0.03) 1px, transparent 1px);
+  background-size: 40px 40px;
+  pointer-events: none;
+  z-index: 0;
+  mask-image: radial-gradient(ellipse at center, black 30%, transparent 80%);
+  -webkit-mask-image: radial-gradient(ellipse at center, black 30%, transparent 80%);
+}
+
+/* ═══ Card ═══ */
+.login-card {
+  position: relative;
+  z-index: 1;
+  background: rgba(15, 23, 42, 0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(51, 65, 85, 0.6);
+  border-radius: 24px;
+  padding: 48px 44px;
+  width: 100%;
+  max-width: 460px;
+  box-shadow:
+    0 24px 80px rgba(0, 0, 0, 0.6),
+    0 0 0 1px rgba(255, 255, 255, 0.03) inset,
+    0 0 60px rgba(56, 189, 248, 0.05);
+  animation: cardFadeIn 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes cardFadeIn {
+  from { opacity: 0; transform: translateY(20px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* ═══ Brand ═══ */
+.brand {
+  text-align: center;
+  margin-bottom: 36px;
+}
+
+.brand-icon {
+  font-size: 56px;
+  margin-bottom: 12px;
+  display: inline-block;
+  filter: drop-shadow(0 0 20px rgba(56, 189, 248, 0.5));
+  animation: brandPulse 3s ease-in-out infinite;
+}
+
+@keyframes brandPulse {
+  0%, 100% { transform: scale(1); filter: drop-shadow(0 0 20px rgba(56, 189, 248, 0.5)); }
+  50%      { transform: scale(1.05); filter: drop-shadow(0 0 30px rgba(56, 189, 248, 0.7)); }
+}
+
+.brand h1 {
+  font-size: 28px;
+  font-weight: 800;
+  background: linear-gradient(135deg, #38bdf8, #0ea5e9);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  letter-spacing: -0.5px;
+  margin-bottom: 6px;
+}
+
+.brand p {
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* ═══ Error ═══ */
+.error {
+  background: rgba(220, 38, 38, 0.15);
+  border: 1px solid rgba(220, 38, 38, 0.5);
+  color: #f87171;
+  padding: 12px 16px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 20px;
+  display: none;
+  animation: shakeIn 0.3s;
+}
+
+.error.show { display: block; }
+
+@keyframes shakeIn {
+  0%, 100% { transform: translateX(0); }
+  25%      { transform: translateX(-4px); }
+  75%      { transform: translateX(4px); }
+}
+
+/* ═══ Form ═══ */
+.form-group {
+  margin-bottom: 20px;
+}
+
+.form-group label {
+  display: block;
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 8px;
+}
+
+.input-wrapper {
+  position: relative;
+}
+
+.input-icon {
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 16px;
+  opacity: 0.5;
+  pointer-events: none;
+  transition: opacity 0.15s;
+}
+
+.form-group input {
+  width: 100%;
+  background: rgba(10, 15, 28, 0.7);
+  border: 1.5px solid #334155;
+  color: #f1f5f9;
+  border-radius: 12px;
+  padding: 14px 16px 14px 46px;
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+  transition: all 0.2s;
+}
+
+.form-group input::placeholder {
+  color: #475569;
+}
+
+.form-group input:focus {
+  border-color: #38bdf8;
+  background: rgba(10, 15, 28, 0.95);
+  box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.12);
+}
+
+.form-group input:focus + .input-focus-icon,
+.input-wrapper:focus-within .input-icon {
+  opacity: 1;
+}
+
+.form-group input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Password toggle */
+.password-toggle {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  border: none;
+  color: #64748b;
+  cursor: pointer;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 16px;
+  transition: all 0.15s;
+}
+
+.password-toggle:hover {
+  background: rgba(56, 189, 248, 0.1);
+  color: #38bdf8;
+}
+
+/* ═══ Remember / Forgot ═══ */
+.form-options {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+  font-size: 13px;
+}
+
+.remember {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #94a3b8;
+  cursor: pointer;
+  user-select: none;
+}
+
+.remember input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #38bdf8;
+  cursor: pointer;
+}
+
+.forgot-link {
+  color: #38bdf8;
+  text-decoration: none;
+  font-weight: 600;
+  transition: opacity 0.15s;
+}
+
+.forgot-link:hover {
+  opacity: 0.8;
+  text-decoration: underline;
+}
+
+/* ═══ Button ═══ */
+.btn-login {
+  width: 100%;
+  background: linear-gradient(135deg, #38bdf8, #0ea5e9);
+  color: #0a0f1c;
+  border: none;
+  border-radius: 12px;
+  padding: 15px;
+  font-size: 15px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: inherit;
+  letter-spacing: 0.3px;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.btn-login::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+  transition: left 0.5s;
+}
+
+.btn-login:hover::before {
+  left: 100%;
+}
+
+.btn-login:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 32px rgba(56, 189, 248, 0.45);
+}
+
+.btn-login:active {
+  transform: translateY(0);
+}
+
+.btn-login:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.btn-login:disabled::before {
+  display: none;
+}
+
+/* ═══ Spinner ═══ */
+.spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(10, 15, 28, 0.3);
+  border-top-color: #0a0f1c;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ═══ Footer ═══ */
+.footer-link {
+  text-align: center;
+  margin-top: 24px;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.footer-link a {
+  color: #38bdf8;
+  text-decoration: none;
+  font-weight: 700;
+  transition: all 0.15s;
+}
+
+.footer-link a:hover {
+  text-decoration: underline;
+  text-shadow: 0 0 12px rgba(56, 189, 248, 0.5);
+}
+
+/* ═══ Divider ═══ */
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 24px 0;
+  color: #475569;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-weight: 600;
+}
+
+.divider::before,
+.divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, #334155, transparent);
+}
+
+/* ═══ Security badge ═══ */
+.security-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 20px;
+  padding: 10px;
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  border-radius: 8px;
+  color: #10b981;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* ═══ Footer ═══ */
+.version {
+  position: fixed;
+  bottom: 16px;
+  right: 20px;
+  color: #475569;
+  font-size: 11px;
+  font-weight: 500;
+  z-index: 1;
+  letter-spacing: 0.3px;
+}
+
+/* ═══ Responsive ═══ */
+@media (max-width: 500px) {
+  .login-card {
+    padding: 36px 28px;
+    border-radius: 20px;
+  }
+  .brand-icon { font-size: 48px; }
+  .brand h1 { font-size: 24px; }
+}
+</style>
+</head>
+<body>
+
+<div class="login-card">
+  <div class="brand">
+    <div class="brand-icon">🔍</div>
+    <h1>AcuScan</h1>
+    <p>Professional Web Vulnerability Scanner</p>
+  </div>
+
+  <div class="error" id="err"></div>
+
+  <form onsubmit="doLogin(event)" autocomplete="on">
+    <div class="form-group">
+      <label for="username">Username</label>
+      <div class="input-wrapper">
+        <span class="input-icon">👤</span>
+        <input
+          type="text"
+          id="username"
+          name="username"
+          required
+          autofocus
+          autocomplete="username"
+          placeholder="Enter your username"
+          spellcheck="false"
+        >
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label for="password">Password</label>
+      <div class="input-wrapper">
+        <span class="input-icon">🔒</span>
+        <input
+          type="password"
+          id="password"
+          name="password"
+          required
+          autocomplete="current-password"
+          placeholder="Enter your password"
+        >
+        <button
+          type="button"
+          class="password-toggle"
+          onclick="togglePassword()"
+          title="Show/hide password"
+        >👁</button>
+      </div>
+    </div>
+
+    <div class="form-options">
+      <label class="remember">
+        <input type="checkbox" id="remember" checked>
+        <span>Remember me</span>
+      </label>
+      <a href="#" class="forgot-link" onclick="showForgot(event)">Forgot password?</a>
+    </div>
+
+    <button type="submit" class="btn-login" id="login-btn">
+      <span id="login-text">Sign In</span>
+    </button>
+  </form>
+
+  <div class="divider">or</div>
+
+  <div class="footer-link">
+    Don't have an account? <a href="/register">Create one →</a>
+  </div>
+
+  <div class="security-badge">
+    🛡️ Secured with AES-256 & JWT
+  </div>
+</div>
+
+<div class="version">AcuScan v6.0 Enterprise</div>
+
+<script>
+// ═══ Toggle password visibility ═══
+function togglePassword() {
+  const input = document.getElementById('password');
+  const btn = event.target;
+  if (input.type === 'password') {
+    input.type = 'text';
+    btn.textContent = '🙈';
+  } else {
+    input.type = 'password';
+    btn.textContent = '👁';
+  }
+}
+
+// ═══ Login handler ═══
+async function doLogin(e) {
+  e.preventDefault();
+
+  const err = document.getElementById('err');
+  const btn = document.getElementById('login-btn');
+  const btnText = document.getElementById('login-text');
+
+  err.classList.remove('show');
+
+  const username = document.getElementById('username').value.trim();
+  const password = document.getElementById('password').value;
+
+  if (!username || !password) {
+    showError('Please fill in all fields');
+    return;
+  }
+
+  // Disable button + show spinner
+  btn.disabled = true;
+  btnText.innerHTML = '<span class="spinner"></span> Signing in...';
+
+  try {
+    const r = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ username, password })
+    });
+
+    const data = await r.json();
+
+    if (data.ok) {
+      // Success animation
+      btnText.innerHTML = '✓ Success!';
+      btn.style.background = 'linear-gradient(135deg, #10b981, #059669)';
+
+      // Redirect
+      setTimeout(() => {
+        const next = new URLSearchParams(window.location.search).get('next');
+        window.location.href = next || '/';
+      }, 400);
+    } else {
+      showError(data.error || 'Invalid credentials');
+      resetButton();
+    }
+  } catch (e) {
+    showError('Network error: ' + e.message);
+    resetButton();
+  }
+}
+
+function showError(message) {
+  const err = document.getElementById('err');
+  err.textContent = '⚠ ' + message;
+  err.classList.add('show');
+  // Shake the card
+  const card = document.querySelector('.login-card');
+  card.style.animation = 'none';
+  setTimeout(() => {
+    card.style.animation = 'shakeIn 0.3s';
+  }, 10);
+}
+
+function resetButton() {
+  const btn = document.getElementById('login-btn');
+  const btnText = document.getElementById('login-text');
+  btn.disabled = false;
+  btnText.textContent = 'Sign In';
+  btn.style.background = '';
+}
+
+function showForgot(e) {
+  e.preventDefault();
+  alert('Password reset requires admin approval.\n\nContact your administrator to reset your password.');
+}
+
+// ═══ Keyboard shortcut: Enter to submit ═══
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    const active = document.activeElement;
+    if (active && (active.id === 'username' || active.id === 'password')) {
+      e.preventDefault();
+      document.querySelector('form').requestSubmit();
+    }
+  }
+});
+
+// ═══ Auto-focus username on load ═══
+window.addEventListener('load', () => {
+  const u = document.getElementById('username');
+  if (u && !u.value) u.focus();
+});
+</script>
+</body>
+</html>

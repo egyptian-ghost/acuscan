@@ -1,0 +1,273 @@
+{% extends "base_v2.html" %}
+{% block title %}Findings{% endblock %}
+{% block page_title %}Findings{% endblock %}
+{% block page_subtitle %}All discovered vulnerabilities across scans{% endblock %}
+
+{% block topbar_actions %}
+<button class="btn btn-ghost btn-sm" onclick="loadFindings()">
+  <span>🔄</span><span>Refresh</span>
+</button>
+<button class="btn btn-secondary btn-sm" onclick="exportFindings('html')">
+  📄 Export HTML
+</button>
+<button class="btn btn-secondary btn-sm" onclick="exportFindings('csv')">
+  📊 Export CSV
+</button>
+{% endblock %}
+
+{% block content %}
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     STATS
+     ═══════════════════════════════════════════════════════════════════════ -->
+<div class="stats-grid">
+  <div class="stat-card stat-total">
+    <div class="stat-header"><span class="stat-icon">🎯</span><span>Total</span></div>
+    <div class="stat-value" id="fs-total">0</div>
+  </div>
+  <div class="stat-card stat-verified">
+    <div class="stat-header"><span class="stat-icon">✓</span><span>Verified</span></div>
+    <div class="stat-value" id="fs-verified">0</div>
+  </div>
+  <div class="stat-card stat-critical">
+    <div class="stat-header"><span class="stat-icon">🔴</span><span>Critical</span></div>
+    <div class="stat-value" id="fs-critical">0</div>
+  </div>
+  <div class="stat-card stat-high">
+    <div class="stat-header"><span class="stat-icon">🟠</span><span>High</span></div>
+    <div class="stat-value" id="fs-high">0</div>
+  </div>
+  <div class="stat-card stat-medium">
+    <div class="stat-header"><span class="stat-icon">🟡</span><span>Medium</span></div>
+    <div class="stat-value" id="fs-medium">0</div>
+  </div>
+  <div class="stat-card stat-low">
+    <div class="stat-header"><span class="stat-icon">🔵</span><span>Low</span></div>
+    <div class="stat-value" id="fs-low">0</div>
+  </div>
+  <div class="stat-card stat-info">
+    <div class="stat-header"><span class="stat-icon">⚪</span><span>Info</span></div>
+    <div class="stat-value" id="fs-info">0</div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     FILTER BAR
+     ═══════════════════════════════════════════════════════════════════════ -->
+<div class="filter-bar">
+  <input type="text" id="search"
+         placeholder="🔍 Search by name, URL, CVE, CWE..."
+         oninput="render()">
+  <select id="sev-filter" onchange="render()">
+    <option value="">All severities</option>
+    <option>critical</option><option>high</option><option>medium</option>
+    <option>low</option><option>info</option>
+  </select>
+  <select id="cat-filter" onchange="render()">
+    <option value="">All categories</option>
+  </select>
+  <select id="verified-filter" onchange="render()">
+    <option value="">All</option>
+    <option value="1">✓ Verified only</option>
+    <option value="0">✗ Unverified only</option>
+  </select>
+  <span id="count-label" class="count-badge">0 / 0</span>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     FINDINGS TABLE
+     ═══════════════════════════════════════════════════════════════════════ -->
+<div class="table-card">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th style="width:110px;" onclick="sortBy('severity')">Severity</th>
+        <th onclick="sortBy('name')">Name</th>
+        <th onclick="sortBy('url')">URL</th>
+        <th style="width:110px;" onclick="sortBy('parameter')">Param</th>
+        <th style="width:110px;" onclick="sortBy('confidence')">Confidence</th>
+        <th style="width:110px;">Verified</th>
+        <th style="width:110px;" onclick="sortBy('extracted')">Extracted</th>
+        <th style="width:130px;">Actions</th>
+      </tr>
+    </thead>
+    <tbody id="findings-body">
+      <tr><td colspan="8" class="empty-cell">Loading...</td></tr>
+    </tbody>
+  </table>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+let ALL = [];
+let sortKey = 'severity';
+let sortAsc = true;
+const SEV_ORDER = {critical: 0, high: 1, medium: 2, low: 3, info: 4};
+
+async function loadFindings() {
+  try {
+    const r = await fetch('/api/v1/findings?limit=2000');
+    const data = await r.json();
+    ALL = data.findings || [];
+    updateStats();
+    populateCategories();
+    render();
+  } catch(e) {
+    document.getElementById('findings-body').innerHTML =
+      `<tr><td colspan="8" class="empty-cell" style="color:var(--danger);">
+        Load failed: ${esc(e.message)}
+      </td></tr>`;
+  }
+}
+
+function updateStats() {
+  const counts = {critical:0, high:0, medium:0, low:0, info:0};
+  let verified = 0;
+  ALL.forEach(f => {
+    if (counts[f.severity] !== undefined) counts[f.severity]++;
+    if (f.verified) verified++;
+  });
+  document.getElementById('fs-total').textContent = ALL.length;
+  document.getElementById('fs-verified').textContent = verified;
+  document.getElementById('fs-critical').textContent = counts.critical;
+  document.getElementById('fs-high').textContent = counts.high;
+  document.getElementById('fs-medium').textContent = counts.medium;
+  document.getElementById('fs-low').textContent = counts.low;
+  document.getElementById('fs-info').textContent = counts.info;
+}
+
+function populateCategories() {
+  const cats = new Set();
+  ALL.forEach(f => { if (f.category) cats.add(f.category); });
+  const sel = document.getElementById('cat-filter');
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">All categories</option>' +
+    [...cats].sort().map(c => `<option>${esc(c)}</option>`).join('');
+  sel.value = cur;
+}
+
+function sortBy(key) {
+  if (sortKey === key) sortAsc = !sortAsc;
+  else { sortKey = key; sortAsc = true; }
+  render();
+}
+
+function render() {
+  const q = (document.getElementById('search').value || '').toLowerCase();
+  const sev = document.getElementById('sev-filter').value;
+  const cat = document.getElementById('cat-filter').value;
+  const vf = document.getElementById('verified-filter').value;
+
+  let rows = ALL.filter(f => {
+    if (sev && f.severity !== sev) return false;
+    if (cat && f.category !== cat) return false;
+    if (vf === '1' && !f.verified) return false;
+    if (vf === '0' && f.verified) return false;
+    if (q) {
+      const hay = ((f.name||'') + ' ' + (f.url||'') + ' ' +
+                   (f.detail||'') + ' ' + (f.cve||'') + ' ' +
+                   (f.cwe||'') + ' ' + (f.parameter||'')).toLowerCase();
+      if (hay.indexOf(q) === -1) return false;
+    }
+    return true;
+  });
+
+  rows.sort((a, b) => {
+    let va, vb;
+    if (sortKey === 'severity') {
+      va = SEV_ORDER[a.severity] || 9;
+      vb = SEV_ORDER[b.severity] || 9;
+    } else if (sortKey === 'confidence') {
+      va = a.confidence || 0; vb = b.confidence || 0;
+    } else if (sortKey === 'extracted') {
+      const ae = a.extracted_info && Object.keys(a.extracted_info).length ? 1 : 0;
+      const be = b.extracted_info && Object.keys(b.extracted_info).length ? 1 : 0;
+      va = ae; vb = be;
+    } else {
+      va = String(a[sortKey] || '').toLowerCase();
+      vb = String(b[sortKey] || '').toLowerCase();
+    }
+    if (va < vb) return sortAsc ? -1 : 1;
+    if (va > vb) return sortAsc ? 1 : -1;
+    return 0;
+  });
+
+  document.getElementById('count-label').textContent =
+    `${rows.length} / ${ALL.length}`;
+
+  const body = document.getElementById('findings-body');
+  if (!rows.length) {
+    body.innerHTML = `<tr><td colspan="8" class="empty-cell">
+      No findings match your filters
+    </td></tr>`;
+    return;
+  }
+
+  body.innerHTML = rows.map(f => {
+    const conf = f.confidence ? Math.round(f.confidence * 100) : 0;
+    const confClass = conf >= 85 ? 'conf-high' : conf >= 70 ? 'conf-med' : 'conf-low';
+    const hasExtracted = f.extracted_info && Object.keys(f.extracted_info).length;
+
+    return `
+      <tr>
+        <td><span class="sev-badge sev-${f.severity}">${f.severity}</span></td>
+        <td>
+          <strong style="color:var(--text-primary);font-size:13px;">
+            ${esc(f.name)}
+          </strong>
+        </td>
+        <td class="url-cell" style="max-width:340px;font-size:11.5px;">
+          ${esc(f.url)}
+        </td>
+        <td>
+          ${f.parameter
+            ? `<code style="font-size:11px;">${esc(f.parameter)}</code>`
+            : '<span style="color:var(--text-disabled);">—</span>'}
+        </td>
+        <td>
+          <span class="conf-badge ${confClass}">${conf ? conf + '%' : '—'}</span>
+        </td>
+        <td>
+          ${f.verified
+            ? '<span class="verified-badge">✓</span>'
+            : '<span class="unverified-badge">—</span>'}
+        </td>
+        <td>
+          ${hasExtracted
+            ? '<span style="color:var(--success);font-weight:700;">✓ Yes</span>'
+            : '<span style="color:var(--text-disabled);">—</span>'}
+        </td>
+        <td>
+          <a class="btn btn-secondary btn-sm" href="/findings/${f.id}">
+            🔬 Verify
+          </a>
+        </td>
+      </tr>`;
+  }).join('');
+}
+
+async function exportFindings(format) {
+  try {
+    const r = await fetch('/api/export?format=' + format, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({findings: ALL}),
+    });
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'acuscan_findings.' + format;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast('Exported ' + format.toUpperCase(), 'success');
+  } catch(e) {
+    showToast('Export failed: ' + e.message, 'error');
+  }
+}
+
+loadFindings();
+</script>
+{% endblock %}

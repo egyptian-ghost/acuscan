@@ -1,0 +1,555 @@
+{% extends "base_v2.html" %}
+{% block title %}Finding #{{ finding_id }}{% endblock %}
+{% block page_title %}Finding Details{% endblock %}
+{% block page_subtitle %}Complete verification trace & evidence{% endblock %}
+
+{% block topbar_actions %}
+<a href="/findings" class="btn btn-secondary btn-sm">← Back</a>
+<button class="btn btn-secondary btn-sm" onclick="copyAsCurl()">📋 cURL</button>
+<button class="btn btn-secondary btn-sm" onclick="downloadJson()">💾 JSON</button>
+{% endblock %}
+
+{% block content %}
+
+<!-- Loading -->
+<div id="loading" style="text-align:center;padding:80px;color:var(--text-tertiary);">
+  <div class="spinner" style="width:32px;height:32px;border-width:3px;
+       border-top-color:var(--accent);margin:0 auto 16px auto;"></div>
+  <p>Loading finding details...</p>
+</div>
+
+<!-- Error -->
+<div id="error-box" class="hidden" style="padding:40px;text-align:center;">
+  <div style="font-size:48px;margin-bottom:16px;">⚠️</div>
+  <h2 style="color:var(--danger);margin-bottom:12px;">Failed to Load Finding</h2>
+  <pre id="error-message" style="background:var(--bg-input);padding:16px;
+    border-radius:var(--r-md);text-align:left;overflow:auto;
+    font-family:var(--font-mono);font-size:12px;color:var(--text-secondary);"></pre>
+  <a href="/findings" class="btn btn-primary" style="margin-top:20px;">
+    ← Back to Findings
+  </a>
+</div>
+
+<!-- Content -->
+<div id="content" class="hidden"></div>
+
+<!-- Base64-encoded JSON (safe from HTML escaping issues) -->
+<script id="finding-b64" type="application/json">{{ finding_b64 }}</script>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ═══════════════════════════════════════════════════════════════════════
+//  1. Decode finding data from base64
+// ═══════════════════════════════════════════════════════════════════════
+
+let FINDING = {};
+let SCAN_ID = '';  // will be set from FINDING.scan_id if available
+
+function decodeBase64Json(b64) {
+  if (!b64 || !b64.trim()) {
+    throw new Error('Empty finding data');
+  }
+  // Decode base64 → binary string
+  const binary = atob(b64.trim());
+  // Convert binary → Uint8Array
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  // Decode UTF-8
+  const text = new TextDecoder('utf-8').decode(bytes);
+  // Parse JSON
+  return JSON.parse(text);
+}
+
+function showError(message) {
+  document.getElementById('loading').classList.add('hidden');
+  document.getElementById('error-box').classList.remove('hidden');
+  document.getElementById('error-message').textContent = message;
+}
+
+try {
+  const b64 = document.getElementById('finding-b64').textContent;
+  FINDING = decodeBase64Json(b64);
+  // Extract scan_id from finding if available
+  SCAN_ID = FINDING.scan_id || FINDING.scan_uuid || '';
+} catch (e) {
+  showError('Failed to decode finding data:\n' + e.message +
+            '\n\nRaw data (first 200 chars):\n' +
+            (document.getElementById('finding-b64').textContent || '').slice(0, 200));
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  2. Helper functions
+// ═══════════════════════════════════════════════════════════════════════
+
+function esc(s) {
+  if (s === null || s === undefined) return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function infoItem(label, value) {
+  if (value === null || value === undefined || value === '') value = '-';
+  return `<div class="info-item">
+    <div class="info-label">${esc(label)}</div>
+    <div class="info-value">${esc(String(value))}</div>
+  </div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  3. HTTP Exchange rendering
+// ═══════════════════════════════════════════════════════════════════════
+
+function buildRequest(ex) {
+  const method = ex.method || 'GET';
+  let path = '/';
+  try {
+    const u = new URL(ex.url);
+    path = u.pathname + (u.search || '');
+  } catch (e) {}
+
+  const lines = [`${method} ${path} HTTP/1.1`];
+  Object.entries(ex.request_headers || {}).forEach(([k, v]) => {
+    lines.push(`${k}: ${v}`);
+  });
+  if (ex.request_body) {
+    lines.push('');
+    lines.push(ex.request_body);
+  }
+  return lines.join('\n');
+}
+
+function buildResponse(ex) {
+  const lines = [`HTTP/1.1 ${ex.response_status || 200}`];
+  Object.entries(ex.response_headers || {}).forEach(([k, v]) => {
+    lines.push(`${k}: ${v}`);
+  });
+  if (ex.response_body) {
+    lines.push('');
+    lines.push(ex.response_body.substring(0, 8000));
+  }
+  return lines.join('\n');
+}
+
+function formatHttp(text) {
+  if (!text) return '<span style="color:var(--text-disabled);">(empty)</span>';
+  let s = esc(text);
+  // Request line
+  s = s.replace(
+    /^(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS) (.*?) HTTP\/[\d.]+/gm,
+    '<span class="http-line-request">$1 $2 HTTP/1.1</span>'
+  );
+  // Status line
+  s = s.replace(
+    /^HTTP\/[\d.]+ (\d+)(.*)/gm,
+    (m, code) => `<span class="${code.startsWith('2') ? 'http-line-status-ok' : 'http-line-status-err'}">HTTP/1.1 ${code}$2</span>`
+  );
+  // Headers
+  s = s.replace(
+    /^([A-Za-z][A-Za-z0-9\-_]+):\s*(.*)$/gm,
+    '<span class="http-line-header-key">$1</span>: <span class="http-line-header-val">$2</span>'
+  );
+  return s;
+}
+
+function renderExchange(ex) {
+  if (!ex) return '';
+  const id = 'exc-' + Math.random().toString(36).slice(2, 9);
+
+  let h = `<div class="http-viewer" id="${id}">`;
+  h += '<div class="http-tabs">';
+  h += `<button class="http-tab active" onclick="switchTab('${id}', 'request', this)">📤 Request</button>`;
+  h += `<button class="http-tab" onclick="switchTab('${id}', 'response', this)">📥 Response</button>`;
+  h += '</div>';
+  h += `<div class="http-view" id="${id}-request">`;
+  h += formatHttp(ex.raw_request || buildRequest(ex));
+  h += '</div>';
+  h += `<div class="http-view hidden" id="${id}-response">`;
+  h += formatHttp(ex.raw_response || buildResponse(ex));
+  h += '</div>';
+  h += '</div>';
+
+  if (ex.response_time_ms) {
+    h += `<div style="margin-top:8px;color:var(--text-tertiary);
+      font-size:12px;font-family:var(--font-mono);">
+      ⏱️ Response time: ${ex.response_time_ms}ms</div>`;
+  }
+  return h;
+}
+
+function switchTab(id, tab, btn) {
+  btn.parentElement.querySelectorAll('.http-tab')
+    .forEach(t => t.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById(id + '-request')
+    .classList.toggle('hidden', tab !== 'request');
+  document.getElementById(id + '-response')
+    .classList.toggle('hidden', tab !== 'response');
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  4. Evidence rendering
+// ═══════════════════════════════════════════════════════════════════════
+
+function renderEvidence(ev) {
+  if (!ev) return '';
+  let h = '<div class="evidence-block">';
+
+  // Header
+  h += '<div class="evidence-header">';
+  h += `<span class="evidence-type">${esc(ev.type || 'evidence')}</span>`;
+  h += `<span style="font-size:13px;font-weight:700;
+    color:var(--text-primary);">${esc(ev.title || '')}</span>`;
+  if (ev.confidence) {
+    h += `<span class="evidence-conf">
+      ${Math.round(ev.confidence * 100)}% conf</span>`;
+  }
+  h += '</div>';
+
+  // Description
+  if (ev.description) {
+    h += `<p style="font-size:13px;color:var(--text-secondary);
+      margin-bottom:12px;line-height:1.6;">
+      ${esc(ev.description)}</p>`;
+  }
+
+  // Raw match
+  if (ev.raw_match) {
+    h += '<div style="margin-bottom:12px;">';
+    h += `<div style="font-size:10px;color:var(--text-tertiary);
+      text-transform:uppercase;letter-spacing:1px;font-weight:800;
+      margin-bottom:6px;">Raw Match</div>`;
+    h += `<div class="evidence-data" style="color:#10d977;">
+      ${esc(ev.raw_match)}</div>`;
+    h += '</div>';
+  }
+
+  // Extracted data
+  if (ev.extracted_data && Object.keys(ev.extracted_data).length) {
+    h += '<div style="margin-bottom:12px;">';
+    h += `<div style="font-size:10px;color:var(--text-tertiary);
+      text-transform:uppercase;letter-spacing:1px;font-weight:800;
+      margin-bottom:6px;">Extracted Data</div>`;
+    h += `<div class="evidence-data" style="color:#4d8dff;">
+      ${esc(JSON.stringify(ev.extracted_data, null, 2))}</div>`;
+    h += '</div>';
+  }
+
+  // HTTP Exchange (collapsible)
+  if (ev.exchange) {
+    h += '<details style="margin-top:12px;">';
+    h += `<summary style="cursor:pointer;color:var(--accent);
+      font-size:12px;font-weight:700;padding:6px 0;">
+      ▶ View HTTP Exchange</summary>`;
+    h += `<div style="margin-top:12px;">${renderExchange(ev.exchange)}</div>`;
+    h += '</details>';
+  }
+
+  h += '</div>';
+  return h;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  5. Main render function
+// ═══════════════════════════════════════════════════════════════════════
+
+function render() {
+  if (!FINDING || (!FINDING.id && !FINDING.name)) {
+    showError('Invalid finding data: missing id and name');
+    return;
+  }
+
+  document.getElementById('loading').classList.add('hidden');
+  const root = document.getElementById('content');
+  root.classList.remove('hidden');
+
+  const confPct = Math.round((FINDING.confidence || 0) * 100);
+  const confColor = confPct >= 85 ? '#10d977'
+                  : confPct >= 70 ? '#f5a524'
+                  : '#7b8ba8';
+
+  let html = '';
+
+  // ─── HEADER ───
+  html += '<div class="finding-header">';
+  html += '<div class="finding-title-row">';
+  html += `<span class="sev-badge sev-${esc(FINDING.severity || 'info')}">`;
+  html += `${esc(FINDING.severity || 'info')}</span>`;
+  html += `<h1 class="finding-title">`;
+  html += `${esc(FINDING.name || FINDING.title || 'Untitled Finding')}`;
+  html += `</h1>`;
+  if (FINDING.verified) {
+    html += '<span class="verified-badge">✓ VERIFIED</span>';
+  }
+  html += '</div>';
+
+  // Confidence meter
+  html += '<div class="confidence-meter">';
+  html += '<span class="confidence-label">Confidence</span>';
+  html += `<div class="confidence-bar">
+    <div class="confidence-fill"
+      style="width:${confPct}%;background:linear-gradient(90deg,${confColor},${confColor}aa);">
+    </div>
+  </div>`;
+  html += `<span class="confidence-value" style="color:${confColor};">
+    ${confPct}%</span>`;
+  html += '</div>';
+
+  // Info grid
+  html += '<div class="info-grid">';
+  if (FINDING.url) html += infoItem('URL', FINDING.url);
+  if (FINDING.parameter) html += infoItem('Parameter', FINDING.parameter);
+  if (FINDING.vuln_type || FINDING.check_name) {
+    html += infoItem('Type', FINDING.vuln_type || FINDING.check_name);
+  }
+  if (FINDING.cwe) html += infoItem('CWE', FINDING.cwe);
+  if (FINDING.cve) html += infoItem('CVE', FINDING.cve);
+  if (FINDING.cvss_score) {
+    html += infoItem('CVSS',
+      `${FINDING.cvss_score} ${FINDING.cvss_vector || ''}`);
+  }
+  if (FINDING.timestamp || FINDING.created_at) {
+    const ts = FINDING.timestamp || FINDING.created_at;
+    html += infoItem('Detected',
+      String(ts).substring(0, 19).replace('T', ' '));
+  }
+  html += '</div>';
+  html += '</div>';
+
+  // ─── EXTRACTED INFO (the money shot) ───
+  const extracted = FINDING.extracted_info || {};
+  if (Object.keys(extracted).length) {
+    html += '<div class="extracted-panel">';
+    html += '<h3>🎯 Extracted Information — Proof of Exploit</h3>';
+    for (const [k, v] of Object.entries(extracted)) {
+      const val = typeof v === 'object'
+        ? JSON.stringify(v, null, 2)
+        : String(v);
+      html += '<div class="extracted-item">';
+      html += `<div class="extracted-key">${esc(k)}</div>`;
+      html += `<div class="extracted-value">${esc(val)}</div>`;
+      html += '</div>';
+    }
+    html += '</div>';
+  }
+
+  // ─── DESCRIPTION ───
+  const desc = FINDING.description || FINDING.detail;
+  if (desc) {
+    html += '<div class="card">';
+    html += '<div class="card-header">';
+    html += '<h2 class="card-title">📝 Description</h2>';
+    html += '</div>';
+    html += `<p style="font-size:14px;line-height:1.7;
+      color:var(--text-secondary);">${esc(desc)}</p>`;
+    html += '</div>';
+  }
+
+  // ─── VERIFICATION STEPS ───
+  const steps = FINDING.steps
+    || (FINDING.verification && FINDING.verification.steps)
+    || [];
+
+  if (steps.length) {
+    html += '<div class="card">';
+    html += '<div class="card-header">';
+    html += '<h2 class="card-title">🔬 Verification Process</h2>';
+    html += `<span class="count-badge">${steps.length} step(s)</span>`;
+    html += '</div>';
+
+    // Baseline stats (if available)
+    const bs = FINDING.baseline_stats
+      || (FINDING.verification && FINDING.verification.baseline_stats);
+    if (bs && Object.keys(bs).length) {
+      html += '<div class="info-grid" style="margin-bottom:20px;">';
+      if (bs.sample_count) html += infoItem('Baseline Samples', bs.sample_count);
+      if (bs.median_length) html += infoItem('Median Length', bs.median_length + ' bytes');
+      if (bs.median_time_ms) html += infoItem('Median Time', bs.median_time_ms + ' ms');
+      if (bs.dominant_status) html += infoItem('Status', bs.dominant_status);
+      html += '</div>';
+    }
+
+    // Timeline
+    html += '<div class="v-timeline">';
+    steps.forEach((step, idx) => {
+      const status = step.status || 'passed';
+      html += `<div class="v-step ${status}">`;
+
+      html += '<div class="v-step-header">';
+      html += `<div class="v-step-name">
+        <span style="color:var(--accent);">#${idx + 1}</span>
+        ${esc(step.name || 'step')}
+      </div>`;
+      html += `<span class="v-step-badge ${status}">${status}</span>`;
+      if (step.duration_ms) {
+        html += `<span style="color:var(--text-tertiary);font-size:11px;
+          font-family:var(--font-mono);">
+          ${Number(step.duration_ms).toFixed(0)}ms</span>`;
+      }
+      html += '</div>';
+
+      if (step.description) {
+        html += `<div class="v-step-desc">${esc(step.description)}</div>`;
+      }
+      if (step.details) {
+        html += `<div class="v-step-details">${esc(step.details)}</div>`;
+      }
+      if (step.payload) {
+        html += '<div style="margin-bottom:12px;">';
+        html += `<div style="font-size:10px;color:var(--text-tertiary);
+          text-transform:uppercase;letter-spacing:1px;font-weight:800;
+          margin-bottom:6px;">Payload</div>`;
+        html += `<div class="evidence-data" style="color:#f5a524;">
+          ${esc(step.payload)}</div>`;
+        html += '</div>';
+      }
+
+      // Evidence in step
+      (step.evidence || []).forEach(ev => {
+        html += renderEvidence(ev);
+      });
+
+      html += '</div>';
+    });
+    html += '</div>';
+    html += '</div>';
+  }
+
+  // ─── KEY EXCHANGE ───
+  if (FINDING.key_exchange) {
+    html += '<div class="card">';
+    html += '<div class="card-header">';
+    html += '<h2 class="card-title">📡 Key Request/Response</h2>';
+    html += '</div>';
+    html += renderExchange(FINDING.key_exchange);
+    html += '</div>';
+  }
+
+  // ─── RAW REQUEST/RESPONSE (if stored) ───
+  if (FINDING.request_raw || FINDING.response_raw) {
+    html += '<div class="card">';
+    html += '<div class="card-header">';
+    html += '<h2 class="card-title">📄 Raw HTTP Data</h2>';
+    html += '</div>';
+    if (FINDING.request_raw) {
+      html += '<div style="margin-bottom:16px;">';
+      html += `<div style="font-size:11px;color:var(--text-tertiary);
+        text-transform:uppercase;letter-spacing:1px;font-weight:800;
+        margin-bottom:8px;">Request</div>`;
+      html += `<div class="http-view">${formatHttp(FINDING.request_raw)}</div>`;
+      html += '</div>';
+    }
+    if (FINDING.response_raw) {
+      html += '<div>';
+      html += `<div style="font-size:11px;color:var(--text-tertiary);
+        text-transform:uppercase;letter-spacing:1px;font-weight:800;
+        margin-bottom:8px;">Response</div>`;
+      html += `<div class="http-view">${formatHttp(FINDING.response_raw)}</div>`;
+      html += '</div>';
+    }
+    html += '</div>';
+  }
+
+  // ─── REMEDIATION ───
+  if (FINDING.remediation) {
+    html += '<div class="card">';
+    html += '<div class="card-header">';
+    html += '<h2 class="card-title">🛠️ Remediation</h2>';
+    html += '</div>';
+    html += `<p style="font-size:14px;line-height:1.7;
+      color:var(--text-secondary);">${esc(FINDING.remediation)}</p>`;
+    html += '</div>';
+  }
+
+  // ─── RELATED SCAN LINK ───
+  if (SCAN_ID) {
+    html += '<div class="card">';
+    html += '<div class="card-header">';
+    html += '<h2 class="card-title">🔗 Related Scan</h2>';
+    html += '</div>';
+    html += `<a href="/scan/${esc(SCAN_ID)}" class="btn btn-primary">
+      View Full Scan →</a>`;
+    html += '</div>';
+  }
+
+  // ─── ACTIONS ───
+  html += '<div style="display:flex;gap:12px;margin-top:24px;flex-wrap:wrap;">';
+  html += '<button class="btn btn-primary" onclick="copyAsCurl()">📋 Copy as cURL</button>';
+  html += '<button class="btn btn-secondary" onclick="downloadJson()">💾 Download JSON</button>';
+  html += '<a href="/findings" class="btn btn-secondary">← Back to Findings</a>';
+  html += '</div>';
+
+  root.innerHTML = html;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  6. Actions
+// ═══════════════════════════════════════════════════════════════════════
+
+function copyAsCurl() {
+  const ex = FINDING.key_exchange;
+  if (!ex) {
+    if (typeof showToast === 'function') {
+      showToast('No HTTP exchange available', 'error');
+    } else {
+      alert('No HTTP exchange available');
+    }
+    return;
+  }
+
+  let cmd = `curl -X ${ex.method || 'GET'} '${ex.url || ''}'`;
+  for (const [k, v] of Object.entries(ex.request_headers || {})) {
+    if (k.toLowerCase() === 'host') continue;
+    cmd += ` \\\n  -H '${k}: ${String(v).replace(/'/g, "\\'")}'`;
+  }
+  if (ex.request_body) {
+    cmd += ` \\\n  --data '${String(ex.request_body).replace(/'/g, "\\'")}'`;
+  }
+
+  navigator.clipboard.writeText(cmd).then(() => {
+    if (typeof showToast === 'function') {
+      showToast('cURL copied to clipboard!', 'success');
+    } else {
+      alert('cURL copied!');
+    }
+  }).catch(() => {
+    // Fallback
+    const ta = document.createElement('textarea');
+    ta.value = cmd;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+  });
+}
+
+function downloadJson() {
+  const blob = new Blob([JSON.stringify(FINDING, null, 2)],
+                        {type: 'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `finding-${FINDING.id || 'unknown'}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  if (typeof showToast === 'function') {
+    showToast('Downloaded', 'success');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  7. Run
+// ═══════════════════════════════════════════════════════════════════════
+
+if (FINDING && (FINDING.id || FINDING.name)) {
+  render();
+}
+</script>
+{% endblock %}

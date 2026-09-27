@@ -1,0 +1,281 @@
+{% extends "base_v2.html" %}
+{% block title %}Server Info{% endblock %}
+{% block page_title %}Server Information{% endblock %}
+{% block page_subtitle %}Detailed server fingerprint for this scan{% endblock %}
+
+{% block topbar_actions %}
+<button class="btn btn-ghost btn-sm" onclick="loadInfo()">
+  <span>🔄</span><span>Refresh</span>
+</button>
+{% endblock %}
+
+{% block content %}
+<input type="hidden" id="scan-id" value="{{ scan_id or '' }}">
+
+<div id="content">
+  <div style="text-align:center;padding:80px;color:var(--text-tertiary);">
+    <div class="spinner" style="width:32px;height:32px;border-width:3px;
+         border-top-color:var(--accent);margin:0 auto 16px auto;"></div>
+    <p>Loading server information...</p>
+  </div>
+</div>
+
+<style>
+.kv-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+.kv-item {
+  padding: 14px 18px; background: var(--bg-surface-overlay);
+  border-radius: var(--r-md); border: 1px solid var(--border-subtle);
+}
+.kv-label {
+  font-size: 10px; color: var(--text-tertiary);
+  text-transform: uppercase; letter-spacing: 1.2px;
+  font-weight: 800; margin-bottom: 6px;
+}
+.kv-value {
+  font-size: 13.5px; color: var(--text-primary);
+  font-family: var(--font-mono); word-break: break-all;
+  line-height: 1.5;
+}
+.kv-value.ok { color: var(--success); }
+.kv-value.err { color: var(--danger); }
+.kv-value.warn { color: var(--warning); }
+
+.tech-badge {
+  display: inline-block; padding: 6px 14px; border-radius: var(--r-full);
+  background: var(--bg-surface-overlay); border: 1px solid var(--border-subtle);
+  color: var(--text-secondary); font-size: 12px; font-weight: 600;
+  margin: 4px 6px 4px 0;
+}
+.tech-badge .cat {
+  color: var(--text-tertiary); font-size: 10px;
+  text-transform: uppercase; margin-left: 6px;
+}
+
+.sec-present {
+  padding: 10px 14px; background: var(--success-soft);
+  border-left: 3px solid var(--success); border-radius: var(--r-sm);
+  margin-bottom: 8px;
+}
+.sec-missing {
+  padding: 10px 14px; background: var(--danger-soft);
+  border-left: 3px solid var(--danger); border-radius: var(--r-sm);
+  margin-bottom: 8px;
+}
+.sec-name { color: var(--text-primary); font-weight: 700; font-size: 13px; }
+.sec-val {
+  color: var(--text-secondary); font-family: var(--font-mono);
+  font-size: 11.5px; margin-top: 4px; word-break: break-all;
+}
+
+.ssl-card {
+  background: linear-gradient(135deg, rgba(16,217,119,0.08),
+              rgba(77,141,255,0.08));
+  border: 2px solid var(--success);
+  border-radius: var(--r-lg); padding: 24px;
+}
+.ssl-card.ssl-warning {
+  background: linear-gradient(135deg, rgba(245,165,36,0.08),
+              rgba(77,141,255,0.08));
+  border-color: var(--warning);
+}
+.ssl-card.ssl-expired {
+  background: linear-gradient(135deg, rgba(244,63,94,0.08),
+              rgba(77,141,255,0.08));
+  border-color: var(--danger);
+}
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function loadInfo() {
+  const scanId = document.getElementById('scan-id').value;
+  if (!scanId) {
+    // Load from most recent scan
+    try {
+      const r = await fetch('/api/scans');
+      const data = await r.json();
+      if (data.scans && data.scans[0] && data.scans[0].id) {
+        document.getElementById('scan-id').value = data.scans[0].id;
+        return loadInfo();
+      }
+    } catch (e) {}
+    document.getElementById('content').innerHTML =
+      '<div style="text-align:center;padding:80px;color:var(--text-tertiary);">No scan selected</div>';
+    return;
+  }
+
+  try {
+    const r = await fetch('/api/v1/scans/' + scanId + '/server-info');
+    const si = await r.json();
+    render(si);
+  } catch (e) {
+    document.getElementById('content').innerHTML =
+      `<div class="empty-state" style="color:var(--danger);">Error: ${esc(e.message)}</div>`;
+  }
+}
+
+function render(si) {
+  const c = document.getElementById('content');
+  if (!si || (!si.server && !si.host)) {
+    c.innerHTML = `<div class="empty-state" style="text-align:center;padding:80px;color:var(--text-tertiary);">
+      <div style="font-size:64px;margin-bottom:20px;opacity:0.4;">🖥</div>
+      <h2 style="color:var(--text-secondary);margin-bottom:8px;">No server information available</h2>
+      <p>Run a scan first to collect server details</p>
+    </div>`;
+    return;
+  }
+
+  let html = '';
+
+  // ═══ General ═══
+  html += '<div class="card">';
+  html += '<div class="card-header"><h2 class="card-title">🖥 Server Information</h2></div>';
+  html += '<div class="kv-grid">';
+  html += kv('Host', si.host);
+  if (si.ip_addresses && si.ip_addresses.length) {
+    html += kv('IP Addresses', si.ip_addresses.join(', '));
+  }
+  html += kv('Port', si.port);
+  html += kv('Protocol', (si.protocol || '').toUpperCase());
+  html += kv('Server Software', si.server || 'Unknown');
+  html += kv('Powered By', si.powered_by || '—');
+  html += kv('Operating System', si.operating_system || 'Unknown');
+  if (si.aspnet_version) html += kv('ASP.NET', si.aspnet_version);
+  html += kv('Response Time', (si.response_time_ms || 0).toFixed(0) + ' ms');
+  html += '</div></div>';
+
+  // ═══ Infrastructure ═══
+  if (si.cdn || si.reverse_proxy || si.hosting_provider) {
+    html += '<div class="card">';
+    html += '<div class="card-header"><h2 class="card-title">☁️ Infrastructure</h2></div>';
+    html += '<div class="kv-grid">';
+    if (si.cdn) html += kv('CDN', si.cdn, 'ok');
+    if (si.reverse_proxy) html += kv('Reverse Proxy', si.reverse_proxy);
+    if (si.hosting_provider) html += kv('Hosting', si.hosting_provider);
+    html += '</div></div>';
+  }
+
+  // ═══ SSL ═══
+  if (si.ssl_enabled) {
+    let sslClass = 'ssl-card';
+    let sslIcon = '🔒';
+    let sslTitle = 'SSL/TLS Certificate';
+    if (si.ssl_days_remaining !== undefined) {
+      if (si.ssl_days_remaining < 0) {
+        sslClass += ' ssl-expired';
+        sslIcon = '⚠️';
+        sslTitle = 'SSL Certificate EXPIRED';
+      } else if (si.ssl_days_remaining < 30) {
+        sslClass += ' ssl-warning';
+        sslIcon = '⚠️';
+        sslTitle = 'SSL Certificate Expiring Soon';
+      }
+    }
+
+    html += `<div class="${sslClass}">`;
+    html += `<h2 class="card-title" style="margin-bottom:16px;">${sslIcon} ${sslTitle}</h2>`;
+    html += '<div class="kv-grid">';
+    html += kv('Protocol', si.ssl_protocol);
+    html += kv('Cipher', si.ssl_cipher);
+    html += kv('Issuer', si.ssl_issuer);
+    html += kv('Subject', si.ssl_subject);
+    html += kv('Expires', (si.ssl_expires || '').substring(0, 30));
+    if (si.ssl_days_remaining !== undefined) {
+      const days = si.ssl_days_remaining;
+      const cls = days < 0 ? 'err' : days < 30 ? 'warn' : 'ok';
+      html += kv('Days Remaining',
+                 days < 0 ? 'EXPIRED' : days + ' days', cls);
+    }
+    html += '</div></div>';
+  }
+
+  // ═══ Security Headers ═══
+  html += '<div class="card">';
+  html += '<div class="card-header">';
+  html += '<h2 class="card-title">🛡️ Security Headers</h2>';
+  const presentCount = Object.keys(si.security_headers || {}).length;
+  const missingCount = (si.missing_security_headers || []).length;
+  html += `<span class="count-badge">${presentCount} present, ${missingCount} missing</span>`;
+  html += '</div>';
+
+  const present = si.security_headers || {};
+  if (Object.keys(present).length) {
+    html += '<h3 style="font-size:12px;color:var(--success);';
+    html += 'text-transform:uppercase;letter-spacing:1px;font-weight:800;';
+    html += 'margin-bottom:12px;">✓ Present (' + presentCount + ')</h3>';
+    for (const [name, value] of Object.entries(present)) {
+      html += `<div class="sec-present">
+        <div class="sec-name">${esc(name)}</div>
+        <div class="sec-val">${esc(value)}</div>
+      </div>`;
+    }
+  }
+
+  const missing = si.missing_security_headers || [];
+  if (missing.length) {
+    html += '<h3 style="font-size:12px;color:var(--danger);';
+    html += 'text-transform:uppercase;letter-spacing:1px;font-weight:800;';
+    html += 'margin:20px 0 12px 0;">✗ Missing (' + missingCount + ')</h3>';
+    missing.forEach(h => {
+      html += `<div class="sec-missing">
+        <div class="sec-name">${esc(h)}</div>
+      </div>`;
+    });
+  }
+  html += '</div>';
+
+  // ═══ Technologies ═══
+  const techs = si.technologies || [];
+  if (techs.length) {
+    html += '<div class="card">';
+    html += '<div class="card-header"><h2 class="card-title">⚙️ Technologies Detected</h2></div>';
+    html += '<div>';
+    techs.forEach(t => {
+      html += `<span class="tech-badge">
+        ${esc(t.name || 'Unknown')}
+        <span class="cat">${esc(t.category || '')}</span>
+      </span>`;
+    });
+    html += '</div></div>';
+  }
+
+  // ═══ All Headers ═══
+  const allHeaders = si.headers || {};
+  if (Object.keys(allHeaders).length) {
+    html += '<div class="card">';
+    html += '<div class="card-header"><h2 class="card-title">📋 All Response Headers</h2></div>';
+    html += '<div class="tree" style="font-family:var(--font-mono);font-size:12px;';
+    html += 'background:var(--bg-input);border-radius:var(--r-md);';
+    html += 'padding:16px;max-height:400px;overflow-y:auto;">';
+    for (const [k, v] of Object.entries(allHeaders)) {
+      html += `<div style="padding:4px 0;border-bottom:1px solid var(--border-subtle);">`;
+      html += `<span style="color:var(--accent);font-weight:700;">${esc(k)}</span>: `;
+      html += `<span style="color:var(--text-secondary);">${esc(v)}</span></div>`;
+    }
+    html += '</div></div>';
+  }
+
+  c.innerHTML = html;
+}
+
+function kv(label, value, cls) {
+  if (value === null || value === undefined || value === '') value = '—';
+  return `<div class="kv-item">
+    <div class="kv-label">${esc(label)}</div>
+    <div class="kv-value ${cls || ''}">${esc(String(value))}</div>
+  </div>`;
+}
+
+function esc(s) {
+  if (s === null || s === undefined) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+loadInfo();
+</script>
+{% endblock %}

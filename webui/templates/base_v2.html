@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}AcuScan{% endblock %} — AcuScan Enterprise</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/main_v2.css') }}">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+{% block head %}{% endblock %}
+</head>
+<body>
+
+<div class="app-layout">
+
+  <!-- ═══════════════ SIDEBAR ═══════════════ -->
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <div class="brand-icon">🔍</div>
+      <div class="brand-text">
+        <div class="brand-name">AcuScan</div>
+        <div class="brand-version">v6.9.0 Enterprise</div>
+      </div>
+    </div>
+
+    <nav class="sidebar-nav">
+      <div class="nav-section">Overview</div>
+      <a href="/" class="nav-item {% if request.path == '/' %}active{% endif %}">
+        <span class="nav-icon">📊</span><span>Dashboard</span>
+      </a>
+
+      <div class="nav-section">Scans</div>
+      <a href="/scans" class="nav-item {% if request.path.startswith('/scans') or request.path.startswith('/scan/') %}active{% endif %}">
+        <span class="nav-icon">🎯</span><span>Scans</span>
+      </a>
+      <a href="/findings" class="nav-item {% if request.path.startswith('/findings') %}active{% endif %}">
+        <span class="nav-icon">🚨</span><span>Findings</span>
+      </a>
+
+      <div class="nav-section">Tools</div>
+      <a href="/upload" class="nav-item {% if request.path.startswith('/upload') %}active{% endif %}">
+        <span class="nav-icon">📁</span><span>Upload API</span>
+      </a>
+      <a href="/schedules" class="nav-item {% if request.path.startswith('/schedules') %}active{% endif %}">
+        <span class="nav-icon">⏰</span><span>Schedules</span>
+      </a>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="user-info">
+        <div class="user-avatar" id="user-avatar">A</div>
+        <div class="user-details">
+          <div class="user-name" id="user-name">User</div>
+          <div class="user-role" id="user-role">Loading...</div>
+        </div>
+        <button class="logout-btn" onclick="doLogout()" title="Sign Out">⎋</button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ═══════════════ MAIN ═══════════════ -->
+  <main class="main-content">
+
+    <header class="topbar">
+      <div class="topbar-left">
+        <h1 class="page-title">{% block page_title %}Dashboard{% endblock %}</h1>
+        <p class="page-subtitle">{% block page_subtitle %}{% endblock %}</p>
+      </div>
+      <div class="topbar-right">
+        {% block topbar_actions %}{% endblock %}
+
+        <button class="btn btn-ghost btn-icon" onclick="toggleTheme()" title="Toggle theme">
+          <span id="theme-icon">🌙</span>
+        </button>
+      </div>
+    </header>
+
+    <div class="content-area">
+      {% block content %}{% endblock %}
+    </div>
+
+  </main>
+</div>
+
+<div id="toast-container"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+//  Theme toggle
+// ═══════════════════════════════════════════════════════════════
+function initTheme() {
+  const saved = localStorage.getItem('acuscan_theme') || 'dark';
+  document.documentElement.setAttribute('data-theme', saved);
+  const icon = document.getElementById('theme-icon');
+  if (icon) icon.textContent = saved === 'dark' ? '🌙' : '☀️';
+}
+
+function toggleTheme() {
+  const current = document.documentElement.getAttribute('data-theme') || 'dark';
+  const next = current === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', next);
+  localStorage.setItem('acuscan_theme', next);
+  const icon = document.getElementById('theme-icon');
+  if (icon) icon.textContent = next === 'dark' ? '🌙' : '☀️';
+}
+
+initTheme();
+
+// ═══════════════════════════════════════════════════════════════
+//  Toast notifications
+// ═══════════════════════════════════════════════════════════════
+function showToast(message, type = 'info', duration = 3500) {
+  let container = document.getElementById('toast-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'toast-container';
+    document.body.appendChild(container);
+  }
+  const icons = {success: '✓', error: '✕', warning: '⚠', info: 'ℹ'};
+  const toast = document.createElement('div');
+  toast.className = 'toast ' + type;
+  toast.innerHTML = `<span style="font-size:16px;">${icons[type] || 'ℹ'}</span><span>${message}</span>`;
+  container.appendChild(toast);
+
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    toast.style.transform = 'translateX(40px)';
+    toast.style.transition = 'all .25s';
+    setTimeout(() => toast.remove(), 300);
+  }, duration);
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Escape HTML
+// ═══════════════════════════════════════════════════════════════
+function esc(s) {
+  if (s === null || s === undefined) return '';
+  return String(s).replace(/&/g,'&amp;')
+                  .replace(/</g,'&lt;')
+                  .replace(/>/g,'&gt;')
+                  .replace(/"/g,'&quot;')
+                  .replace(/'/g,'&#39;');
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  API helper
+// ═══════════════════════════════════════════════════════════════
+async function apiFetch(url, options = {}) {
+  const opts = Object.assign({
+    headers: Object.assign(
+      {'Content-Type': 'application/json'},
+      options.headers || {}
+    ),
+  }, options);
+  try {
+    const r = await fetch(url, opts);
+    if (r.status === 401) {
+      window.location.href = '/login';
+      throw new Error('Unauthorized');
+    }
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({error: 'HTTP ' + r.status}));
+      throw new Error(err.error || 'HTTP ' + r.status);
+    }
+    return await r.json();
+  } catch(e) {
+    console.error('API error:', url, e);
+    throw e;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Logout
+// ═══════════════════════════════════════════════════════════════
+async function doLogout() {
+  if (!confirm('Sign out of AcuScan?')) return;
+  try {
+    await fetch('/api/auth/logout', {method: 'POST'});
+  } catch(e) {}
+  window.location.href = '/login';
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Load current user
+// ═══════════════════════════════════════════════════════════════
+async function loadCurrentUser() {
+  try {
+    const r = await fetch('/api/auth/me');
+    const data = await r.json();
+    if (data.authenticated) {
+      const nameEl = document.getElementById('user-name');
+      const roleEl = document.getElementById('user-role');
+      const avEl = document.getElementById('user-avatar');
+      if (nameEl) nameEl.textContent = data.user.username;
+      if (roleEl) roleEl.textContent = data.user.role;
+      if (avEl) avEl.textContent = (data.user.username[0] || 'U').toUpperCase();
+    }
+  } catch(e) {}
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Format helpers
+// ═══════════════════════════════════════════════════════════════
+function formatDuration(seconds) {
+  if (!seconds && seconds !== 0) return '-';
+  if (seconds < 60) return seconds.toFixed(1) + 's';
+  const m = Math.floor(seconds / 60);
+  const s = Math.round(seconds % 60);
+  return `${m}m ${s}s`;
+}
+
+function formatDate(iso) {
+  if (!iso) return '-';
+  try { return iso.substring(0, 19).replace('T', ' '); }
+  catch(e) { return iso; }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Keyboard shortcuts
+// ═══════════════════════════════════════════════════════════════
+document.addEventListener('keydown', (e) => {
+  // Ctrl+K → focus search
+  if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+    const searchInput = document.getElementById('search')
+                     || document.getElementById('findingsSearch');
+    if (searchInput) {
+      e.preventDefault();
+      searchInput.focus();
+    }
+  }
+  // Escape → close modals
+  if (e.key === 'Escape') {
+    document.querySelectorAll('.modal.show').forEach(m => m.classList.remove('show'));
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
+//  Init
+// ═══════════════════════════════════════════════════════════════
+document.addEventListener('DOMContentLoaded', () => {
+  loadCurrentUser();
+});
+</script>
+
+{% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,252 @@
+{% extends "base_v2.html" %}
+{% block title %}Schedules{% endblock %}
+{% block page_title %}Scheduled Scans{% endblock %}
+{% block page_subtitle %}Automate recurring security scans{% endblock %}
+
+{% block topbar_actions %}
+<button class="btn btn-ghost btn-sm" onclick="loadSchedules()">
+  <span>🔄</span><span>Refresh</span>
+</button>
+{% endblock %}
+
+{% block content %}
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     CREATE SCHEDULE
+     ═══════════════════════════════════════════════════════════════════════ -->
+<div class="card">
+  <div class="card-header">
+    <h2 class="card-title">➕ Create Schedule</h2>
+  </div>
+
+  <div class="form-grid">
+    <div class="form-group">
+      <label>Name</label>
+      <input type="text" id="sched-name" placeholder="Daily production scan">
+    </div>
+    <div class="form-group">
+      <label>Cron Expression</label>
+      <input type="text" id="sched-cron" value="0 2 * * *" placeholder="0 2 * * *">
+      <div class="hint">min hour day month weekday</div>
+    </div>
+  </div>
+
+  <div class="form-group">
+    <label>Targets <span class="hint">(one per line)</span></label>
+    <textarea id="sched-targets" rows="3"
+      placeholder="https://example.com&#10;https://another.com"></textarea>
+  </div>
+
+  <!-- Common presets -->
+  <div style="margin-bottom:16px;">
+    <div style="font-size:11px;color:var(--text-tertiary);
+      text-transform:uppercase;letter-spacing:1px;font-weight:800;margin-bottom:8px;">
+      Quick Presets
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <button class="btn btn-secondary btn-sm" onclick="setCron('0 * * * *')">
+        Hourly
+      </button>
+      <button class="btn btn-secondary btn-sm" onclick="setCron('0 2 * * *')">
+        Daily (2AM)
+      </button>
+      <button class="btn btn-secondary btn-sm" onclick="setCron('0 2 * * 0')">
+        Weekly (Sunday)
+      </button>
+      <button class="btn btn-secondary btn-sm" onclick="setCron('0 2 1 * *')">
+        Monthly
+      </button>
+    </div>
+  </div>
+
+  <div class="form-toggles">
+    <label class="toggle">
+      <input type="checkbox" id="sched-verify" checked>
+      <span>Verification Engine</span>
+    </label>
+    <label class="toggle">
+      <input type="checkbox" id="sched-oast">
+      <span>OAST (blind detection)</span>
+    </label>
+  </div>
+
+  <div style="margin-top:20px;display:flex;gap:12px;">
+    <button class="btn btn-primary" onclick="createSchedule()">
+      ✓ Create Schedule
+    </button>
+    <button class="btn btn-secondary" onclick="clearForm()">
+      Clear
+    </button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     SCHEDULES LIST
+     ═══════════════════════════════════════════════════════════════════════ -->
+<div class="table-card">
+  <div class="table-header">
+    <h3>📅 Scheduled Scans</h3>
+    <span class="count-badge" id="sched-count">0</span>
+  </div>
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th style="width:150px;">Cron</th>
+        <th>Targets</th>
+        <th style="width:100px;">Enabled</th>
+        <th style="width:180px;">Last Run</th>
+        <th style="width:240px;">Actions</th>
+      </tr>
+    </thead>
+    <tbody id="schedules-body">
+      <tr><td colspan="6" class="empty-cell">Loading...</td></tr>
+    </tbody>
+  </table>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function loadSchedules() {
+  try {
+    const r = await fetch('/api/v1/schedules');
+    const data = await r.json();
+    const body = document.getElementById('schedules-body');
+    const schedules = data.schedules || [];
+
+    document.getElementById('sched-count').textContent = schedules.length;
+
+    if (!schedules.length) {
+      body.innerHTML = `<tr><td colspan="6" class="empty-cell">
+        No schedules yet. Create one above.
+      </td></tr>`;
+      return;
+    }
+
+    body.innerHTML = schedules.map(s => `
+      <tr>
+        <td><strong style="color:var(--text-primary);">${esc(s.name)}</strong></td>
+        <td><code style="font-size:11.5px;">${esc(s.cron_expression || '')}</code></td>
+        <td style="font-size:12px;word-break:break-all;max-width:320px;">
+          ${esc((s.targets || []).join(', '))}
+        </td>
+        <td>
+          ${s.enabled
+            ? '<span class="status-badge status-completed">✓ ON</span>'
+            : '<span class="status-badge status-stopped">✗ OFF</span>'}
+        </td>
+        <td style="font-size:12px;color:var(--text-tertiary);">
+          ${s.last_run
+            ? s.last_run.substring(0, 19).replace('T', ' ')
+            : 'Never'}
+        </td>
+        <td>
+          <button class="btn btn-primary btn-sm" onclick="runNow(${s.id})"
+            style="margin-right:4px;">▶ Run</button>
+          <button class="btn btn-secondary btn-sm"
+            onclick="toggleSchedule(${s.id}, ${!s.enabled})">
+            ${s.enabled ? 'Disable' : 'Enable'}
+          </button>
+          <button class="btn btn-ghost btn-sm" onclick="deleteSchedule(${s.id})">
+            ✕
+          </button>
+        </td>
+      </tr>
+    `).join('');
+  } catch(e) {
+    console.error(e);
+  }
+}
+
+function setCron(expr) {
+  document.getElementById('sched-cron').value = expr;
+}
+
+function clearForm() {
+  document.getElementById('sched-name').value = '';
+  document.getElementById('sched-cron').value = '0 2 * * *';
+  document.getElementById('sched-targets').value = '';
+}
+
+async function createSchedule() {
+  const name = document.getElementById('sched-name').value.trim();
+  const cron = document.getElementById('sched-cron').value.trim();
+  const targets = document.getElementById('sched-targets').value
+    .split('\n').map(s => s.trim()).filter(s => s);
+
+  if (!name) { showToast('Enter a schedule name', 'error'); return; }
+  if (!cron) { showToast('Enter a cron expression', 'error'); return; }
+  if (!targets.length) { showToast('Enter at least one target', 'error'); return; }
+
+  try {
+    const r = await fetch('/api/v1/schedules', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        name, cron, targets,
+        config: {
+          enable_verification: document.getElementById('sched-verify').checked,
+          enable_oast: document.getElementById('sched-oast').checked,
+        }
+      }),
+    });
+    const data = await r.json();
+    if (data.ok) {
+      showToast('Schedule created!', 'success');
+      clearForm();
+      loadSchedules();
+    } else {
+      showToast(data.error || 'Failed', 'error');
+    }
+  } catch(e) {
+    showToast('Error: ' + e.message, 'error');
+  }
+}
+
+async function toggleSchedule(id, enabled) {
+  try {
+    await fetch('/api/v1/schedules/' + id, {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({enabled}),
+    });
+    showToast(enabled ? 'Schedule enabled' : 'Schedule disabled', 'success');
+    loadSchedules();
+  } catch(e) {
+    showToast('Update failed', 'error');
+  }
+}
+
+async function runNow(id) {
+  try {
+    const r = await fetch('/api/v1/schedules/' + id + '/run', {method: 'POST'});
+    const data = await r.json();
+    if (data.scan_id) {
+      showToast('Scan started!', 'success');
+      setTimeout(() => {
+        window.location.href = '/scan/' + data.scan_id;
+      }, 500);
+    } else {
+      showToast(data.error || 'Failed to start', 'error');
+    }
+  } catch(e) {
+    showToast('Failed to start scan', 'error');
+  }
+}
+
+async function deleteSchedule(id) {
+  if (!confirm('Delete this schedule?')) return;
+  try {
+    await fetch('/api/v1/schedules/' + id, {method: 'DELETE'});
+    showToast('Schedule deleted', 'success');
+    loadSchedules();
+  } catch(e) {
+    showToast('Delete failed', 'error');
+  }
+}
+
+loadSchedules();
+</script>
+{% endblock %}

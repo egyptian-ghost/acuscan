@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}AcuScan{% endblock %} — AcuScan</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+{% block head %}{% endblock %}
+</head>
+<body>
+<div class="app-layout">
+
+  <!-- ═══ Sidebar ═══ -->
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <div class="brand-icon">🔍</div>
+      <div class="brand-text">
+        <div class="brand-name">AcuScan</div>
+        <div class="brand-version">v6.9.0 Enterprise</div>
+      </div>
+    </div>
+
+    <nav class="sidebar-nav">
+      <a href="/" class="nav-item {% if request.path == '/' %}active{% endif %}">
+        <span class="nav-icon">📊</span><span>Dashboard</span>
+      </a>
+      <a href="/scans" class="nav-item {% if request.path.startswith('/scans') or request.path.startswith('/scan/') %}active{% endif %}">
+        <span class="nav-icon">🎯</span><span>Scans</span>
+      </a>
+      <a href="/findings" class="nav-item {% if request.path.startswith('/findings') %}active{% endif %}">
+        <span class="nav-icon">🚨</span><span>Findings</span>
+      </a>
+      <a href="/upload" class="nav-item {% if request.path.startswith('/upload') %}active{% endif %}">
+        <span class="nav-icon">📁</span><span>Upload API</span>
+      </a>
+      <a href="/schedules" class="nav-item {% if request.path.startswith('/schedules') %}active{% endif %}">
+        <span class="nav-icon">⏰</span><span>Schedules</span>
+      </a>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="user-info">
+        <div class="user-avatar" id="user-avatar">A</div>
+        <div class="user-details">
+          <div class="user-name" id="user-name">User</div>
+          <div class="user-role" id="user-role">Loading...</div>
+        </div>
+        <button class="logout-btn" onclick="doLogout()" title="Logout">⎋</button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ═══ Main Content ═══ -->
+  <main class="main-content">
+    <header class="topbar">
+      <div class="topbar-left">
+        <h1 class="page-title">{% block page_title %}Dashboard{% endblock %}</h1>
+        <p class="page-subtitle">{% block page_subtitle %}{% endblock %}</p>
+      </div>
+      <div class="topbar-right">
+        {% block topbar_actions %}{% endblock %}
+      </div>
+    </header>
+
+    <div class="content-area">
+      {% block content %}{% endblock %}
+    </div>
+  </main>
+</div>
+
+<div id="toast-container"></div>
+
+<script src="{{ url_for('static', filename='js/main.js') }}"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

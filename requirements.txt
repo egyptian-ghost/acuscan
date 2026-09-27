@@ -1,0 +1,24 @@
+# Core
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+brotli>=1.1.0
+colorama>=0.4.6
+
+# Auth & 2FA
+pyotp>=2.9.0
+qrcode>=7.4.0
+
+# Web UI
+Flask>=3.0.0
+flask-sock>=0.7.0
+
+# Data & Scheduling
+pyyaml>=6.0
+croniter>=2.0.0
+
+# OAST (optional)
+dnslib>=0.9.24
+
+# PDF (optional)
+weasyprint>=60.0
+# or: reportlab>=4.0.0

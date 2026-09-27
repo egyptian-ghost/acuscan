@@ -1,0 +1,607 @@
+{% extends "base_v2.html" %}
+{% block title %}Scans{% endblock %}
+{% block page_title %}Scans{% endblock %}
+{% block page_subtitle %}Start new scans and monitor running ones{% endblock %}
+
+{% block topbar_actions %}
+<button class="btn btn-ghost btn-sm" onclick="loadScans()">
+  <span>🔄</span><span>Refresh</span>
+</button>
+<button class="btn btn-danger btn-sm" id="stop-all-btn"
+        onclick="stopAll()" style="display:none;">
+  ⏹ Stop All
+</button>
+<button class="btn btn-primary btn-sm" onclick="showNewScanModal()">
+  <span>+</span><span>New Scan</span>
+</button>
+{% endblock %}
+
+{% block head %}
+<style>
+.scope-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+.scope-option {
+  padding: 14px 16px;
+  background: var(--bg-surface-overlay);
+  border-radius: var(--r-md);
+  border: 2px solid var(--border-subtle);
+  cursor: pointer;
+  transition: all var(--t-fast);
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.scope-option:hover {
+  border-color: var(--border-default);
+  background: var(--bg-hover);
+}
+.scope-option.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.scope-option input[type="radio"] {
+  margin-top: 3px;
+  accent-color: var(--accent);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.scope-option-body { flex: 1; min-width: 0; }
+.scope-option-title {
+  font-weight: 700;
+  color: var(--text-primary);
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+.scope-option-desc {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  line-height: 1.4;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+
+<div class="table-card">
+  <div class="table-header">
+    <h3>📋 Active & Recent Scans</h3>
+    <span class="count-badge" id="scans-count">0</span>
+  </div>
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th style="width:80px;">ID</th>
+        <th>Targets</th>
+        <th style="width:130px;">Status</th>
+        <th style="width:110px;">Findings</th>
+        <th style="width:110px;">Duration</th>
+        <th style="width:180px;">Started</th>
+        <th style="width:180px;">Actions</th>
+      </tr>
+    </thead>
+    <tbody id="scans-body">
+      <tr><td colspan="7" class="empty-cell">Loading...</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     New Scan Modal
+     ═══════════════════════════════════════════════════════════════════════ -->
+<div id="new-scan-modal" class="modal">
+  <div class="modal-backdrop" onclick="hideNewScanModal()"></div>
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2>🎯 New Scan</h2>
+      <button class="modal-close" onclick="hideNewScanModal()">×</button>
+    </div>
+
+    <div class="modal-body">
+
+      <!-- ═══ Target URLs ═══ -->
+      <div class="form-group">
+        <label>Target URLs <span class="hint">(one per line)</span></label>
+        <textarea id="ns-targets" rows="4"
+          placeholder="http://127.0.0.1/3/v3/&#10;https://example.com/admin"></textarea>
+      </div>
+
+      <!-- ═══ Scan Scope (NEW) ═══ -->
+      <div class="form-group">
+        <label>Scan Scope</label>
+        <div class="scope-options">
+          <label class="scope-option active" data-scope="path">
+            <input type="radio" name="scan_scope" value="path" checked>
+            <div class="scope-option-body">
+              <div class="scope-option-title">📍 Path Only</div>
+              <div class="scope-option-desc">
+                Scan only the given path (e.g., /3/v3/)
+              </div>
+            </div>
+          </label>
+
+          <label class="scope-option" data-scope="domain">
+            <input type="radio" name="scan_scope" value="domain">
+            <div class="scope-option-body">
+              <div class="scope-option-title">🌐 Full Domain</div>
+              <div class="scope-option-desc">
+                Scan entire domain (ignores path)
+              </div>
+            </div>
+          </label>
+
+          <label class="scope-option" data-scope="both">
+            <input type="radio" name="scan_scope" value="both">
+            <div class="scope-option-body">
+              <div class="scope-option-title">🎯 Path + Domain</div>
+              <div class="scope-option-desc">
+                Scan path first, then full domain
+              </div>
+            </div>
+          </label>
+        </div>
+      </div>
+
+      <!-- ═══ Performance ═══ -->
+      <div class="form-grid" style="margin-top:16px;">
+        <div class="form-group">
+          <label>Concurrency</label>
+          <input type="number" id="ns-concurrency" value="25" min="1" max="100">
+        </div>
+        <div class="form-group">
+          <label>Rate Limit (req/s)</label>
+          <input type="number" id="ns-rate" value="150" min="1">
+        </div>
+        <div class="form-group">
+          <label>Crawl Depth</label>
+          <input type="number" id="ns-depth" value="5" min="1" max="15">
+          <div class="hint">Deeper = more URLs but slower</div>
+        </div>
+        <div class="form-group">
+          <label>Max Pages</label>
+          <input type="number" id="ns-max-pages" value="500" min="10" max="10000">
+          <div class="hint">Maximum URLs to crawl</div>
+        </div>
+      </div>
+
+      <!-- ═══ Advanced (collapsible) ═══ -->
+      <details style="margin-top:16px;padding:16px;
+              background:var(--bg-surface-overlay);border-radius:var(--r-md);
+              border:1px solid var(--border-subtle);">
+        <summary style="cursor:pointer;color:var(--text-secondary);
+                font-size:13px;font-weight:700;padding:4px 0;">
+          🔐 Authentication & Advanced Options
+        </summary>
+
+        <div style="margin-top:20px;">
+          <div class="form-group">
+            <label>Cookie String</label>
+            <input type="text" id="ns-cookie"
+              placeholder="site_theme=light; PHPSESSID=abc123">
+            <div class="hint">
+              Format: name1=value1; name2=value2
+            </div>
+          </div>
+
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Basic Auth</label>
+              <input type="text" id="ns-auth" placeholder="user:pass">
+            </div>
+            <div class="form-group">
+              <label>Bearer Token</label>
+              <input type="text" id="ns-bearer" placeholder="eyJ...">
+            </div>
+          </div>
+
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Login URL</label>
+              <input type="text" id="ns-login-url"
+                placeholder="http://127.0.0.1/3/v3/login.php">
+            </div>
+            <div class="form-group">
+              <label>Login Data</label>
+              <input type="text" id="ns-login-data"
+                placeholder="username=admin,password=admin">
+            </div>
+          </div>
+
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Success Indicator</label>
+              <input type="text" id="ns-login-check"
+                placeholder="Dashboard">
+              <div class="hint">
+                String that appears after successful login
+              </div>
+            </div>
+            <div class="form-group">
+              <label>TOTP Secret (2FA)</label>
+              <input type="text" id="ns-totp"
+                placeholder="JBSWY3DPEHPK3PXP">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Custom Headers</label>
+            <textarea id="ns-headers" rows="2"
+              placeholder="X-Custom: value&#10;X-Another: value"></textarea>
+          </div>
+
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Severity Filter</label>
+              <input type="text" id="ns-severity"
+                placeholder="critical,high,medium">
+              <div class="hint">Empty = all</div>
+            </div>
+            <div class="form-group">
+              <label>Proxy</label>
+              <input type="text" id="ns-proxy"
+                placeholder="http://127.0.0.1:8080">
+            </div>
+          </div>
+        </div>
+      </details>
+
+      <!-- ═══ Toggles ═══ -->
+      <div class="form-toggles">
+        <label class="toggle">
+          <input type="checkbox" id="ns-verify" checked>
+          <span>Verification Engine</span>
+        </label>
+        <label class="toggle">
+          <input type="checkbox" id="ns-oast">
+          <span>OAST (blind detection)</span>
+        </label>
+        <label class="toggle">
+          <input type="checkbox" id="ns-storage" checked>
+          <span>Save to Database</span>
+        </label>
+        <label class="toggle">
+          <input type="checkbox" id="ns-plugins" checked>
+          <span>Custom Plugins</span>
+        </label>
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="hideNewScanModal()">
+        Cancel
+      </button>
+      <button class="btn btn-primary" id="ns-start-btn" onclick="startScan()">
+        ▶ Start Scan
+      </button>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+let refreshInterval = null;
+
+// ═══════════════════════════════════════════════════════════════════════
+//  Scope selector — highlight active option
+// ═══════════════════════════════════════════════════════════════════════
+
+document.addEventListener('change', (e) => {
+  if (e.target.name === 'scan_scope') {
+    document.querySelectorAll('.scope-option').forEach(opt => {
+      opt.classList.toggle('active',
+        opt.dataset.scope === e.target.value);
+    });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+//  Load scans
+// ═══════════════════════════════════════════════════════════════════════
+
+async function loadScans() {
+  try {
+    const r = await fetch('/api/scans');
+    const data = await r.json();
+    const body = document.getElementById('scans-body');
+    const scans = data.scans || [];
+
+    document.getElementById('scans-count').textContent = scans.length;
+
+    const hasRunning = scans.some(s =>
+      s.status === 'running' || s.status === 'pending');
+    document.getElementById('stop-all-btn').style.display =
+      hasRunning ? 'inline-flex' : 'none';
+
+    if (!scans.length) {
+      body.innerHTML = `<tr><td colspan="7" class="empty-cell">
+        No scans yet. Click "<strong>+ New Scan</strong>" to start.
+      </td></tr>`;
+      return;
+    }
+
+    body.innerHTML = scans.map(s => {
+      // Defensive UI dedupe: old DB records may contain repeated targets.
+      const uniqueTargets = [];
+      const targetSeen = new Set();
+      (s.targets || []).forEach(t => {
+        const value = String(t || '').trim();
+        const key = value.replace(/\/$/, '').toLowerCase();
+        if (value && !targetSeen.has(key)) {
+          targetSeen.add(key);
+          uniqueTargets.push(value);
+        }
+      });
+      let displayId = '?';
+      if (s.display_id) displayId = s.display_id;
+      else if (s.id) displayId = '#' + s.id;
+      else if (s.scan_uuid) displayId = s.scan_uuid.slice(0, 8);
+
+      const linkId = s.scan_uuid || s.id || s.scan_id || '';
+
+      let startedAt = '—';
+      if (s.started_at) {
+        startedAt = s.started_at.substring(0, 19).replace('T', ' ');
+      } else if (s.start_time) {
+        startedAt = new Date(s.start_time * 1000).toLocaleString();
+      }
+
+      let duration = '—';
+      const dur = s.duration_seconds !== undefined
+        ? s.duration_seconds : s.duration;
+      if (dur !== undefined && dur !== null) {
+        duration = typeof dur === 'number' ? dur.toFixed(1) + 's' : dur;
+      }
+
+      const findings = s.total_findings !== undefined && s.total_findings !== null
+        ? s.total_findings : (s.findings_count || 0);
+
+      const isRunning = s.status === 'running' || s.status === 'pending';
+
+      return `
+        <tr>
+          <td>
+            ${linkId
+              ? `<a href="/scan/${linkId}" class="link"
+                    style="font-weight:700;">${displayId}</a>`
+              : `<span style="font-weight:700;color:var(--text-tertiary);">
+                    ${displayId}</span>`}
+          </td>
+          <td style="max-width:340px;word-break:break-all;font-size:12.5px;">
+            ${esc(uniqueTargets.join(', '))}
+          </td>
+          <td>
+            <span class="status-badge status-${s.status}">
+              ${isRunning ? '● ' : ''}${s.status}
+            </span>
+          </td>
+          <td><strong style="font-size:14px;">${findings}</strong></td>
+          <td>${duration}</td>
+          <td style="font-size:12px;color:var(--text-tertiary);">
+            ${startedAt}
+          </td>
+          <td>
+            ${linkId
+              ? `<a class="btn btn-secondary btn-sm" href="/scan/${linkId}"
+                    style="margin-right:4px;">View</a>`
+              : `<button class="btn btn-secondary btn-sm" disabled
+                    style="margin-right:4px;opacity:0.5;">View</button>`}
+            ${isRunning
+              ? `<button class="btn btn-danger btn-sm"
+                    onclick="stopScan('${linkId}')">Stop</button>`
+              : (linkId
+                  ? `<button class="btn btn-ghost btn-sm"
+                        onclick="deleteScan('${linkId}')">✕</button>`
+                  : '')}
+          </td>
+        </tr>
+      `;
+    }).join('');
+  } catch (e) {
+    console.error('loadScans error:', e);
+    document.getElementById('scans-body').innerHTML =
+      `<tr><td colspan="7" class="empty-cell"
+        style="color:var(--danger);">
+        Failed to load scans: ${esc(e.message)}
+      </td></tr>`;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  Modal
+// ═══════════════════════════════════════════════════════════════════════
+
+function showNewScanModal() {
+  document.getElementById('new-scan-modal').classList.add('show');
+  const prefill = sessionStorage.getItem('acuscan_prefill_targets');
+  if (prefill) {
+    document.getElementById('ns-targets').value = prefill;
+    sessionStorage.removeItem('acuscan_prefill_targets');
+  } else {
+    setTimeout(() => document.getElementById('ns-targets').focus(), 100);
+  }
+}
+
+function hideNewScanModal() {
+  document.getElementById('new-scan-modal').classList.remove('show');
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  Start scan
+// ═══════════════════════════════════════════════════════════════════════
+
+async function startScan() {
+  const rawTargets = document.getElementById('ns-targets').value
+    .split('\n').map(s => s.trim()).filter(s => s);
+  const targetSeen = new Set();
+  const targets = rawTargets.filter(t => {
+    const key = t.replace(/\/$/, '').toLowerCase();
+    if (targetSeen.has(key)) return false;
+    targetSeen.add(key);
+    return true;
+  });
+
+  if (!targets.length) {
+    showToast('Enter at least one target URL', 'error');
+    return;
+  }
+
+  // ⭐ Get scan scope
+  const scopeEl = document.querySelector(
+    'input[name="scan_scope"]:checked'
+  );
+  const scanScope = scopeEl ? scopeEl.value : 'path';
+
+  const headers = document.getElementById('ns-headers').value
+    .split('\n').map(s => s.trim()).filter(s => s.includes(':'));
+
+  const config = {
+    targets,
+    scan_scope: scanScope,           // ⭐ NEW
+    concurrency: parseInt(document.getElementById('ns-concurrency').value) || 25,
+    rate_limit: parseInt(document.getElementById('ns-rate').value) || 150,
+    crawl_depth: parseInt(document.getElementById('ns-depth').value) || 3,
+    crawl_max_pages: parseInt(document.getElementById('ns-max-pages').value) || 500,
+    cookie: document.getElementById('ns-cookie').value.trim(),
+    auth: document.getElementById('ns-auth').value.trim(),
+    bearer: document.getElementById('ns-bearer').value.trim(),
+    login_url: document.getElementById('ns-login-url').value.trim(),
+    login_data: document.getElementById('ns-login-data').value.trim(),
+    login_check: document.getElementById('ns-login-check').value.trim(),
+    totp_secret: document.getElementById('ns-totp').value.trim(),
+    headers: headers,
+    severity: document.getElementById('ns-severity').value.trim(),
+    proxy: document.getElementById('ns-proxy').value.trim() || null,
+    enable_verification: document.getElementById('ns-verify').checked,
+    enable_oast: document.getElementById('ns-oast').checked,
+    enable_storage: document.getElementById('ns-storage').checked,
+    enable_plugins: document.getElementById('ns-plugins').checked,
+  };
+
+  const btn = document.getElementById('ns-start-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Starting...';
+
+  try {
+    const r = await fetch('/api/scan', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
+      body: JSON.stringify(config),
+    });
+
+    // Flask can return an HTML 500 page. Do not blindly call response.json(),
+    // otherwise the UI only shows the unhelpful: Unexpected token '<'.
+    const contentType = (r.headers.get('content-type') || '').toLowerCase();
+    let data;
+    if (contentType.includes('application/json')) {
+      data = await r.json();
+    } else {
+      const text = await r.text();
+      const cleanText = text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+      data = {
+        error: r.ok
+          ? 'Server returned an unexpected non-JSON response.'
+          : `Server error (${r.status}): ${cleanText.slice(0, 500)}`
+      };
+    }
+
+    if (data.scan_id) {
+      if (data.skipped && data.skipped.length) {
+        showToast(data.message || 'Some targets skipped', 'warning');
+      } else {
+        let msg = 'Scan started!';
+        if (data.scope) {
+          msg += ` (scope: ${data.scope})`;
+        }
+        if (data.targets_expanded && data.targets_expanded.length > 1) {
+          msg += ` — ${data.targets_expanded.length} targets`;
+        }
+        showToast(msg, 'success');
+      }
+      setTimeout(() => {
+        window.location.href = '/scan/' + data.scan_id;
+      }, 500);
+    } else {
+      showToast(data.error || 'Failed to start scan', 'error');
+      btn.disabled = false;
+      btn.innerHTML = '▶ Start Scan';
+    }
+  } catch (e) {
+    showToast('Error: ' + e.message, 'error');
+    btn.disabled = false;
+    btn.innerHTML = '▶ Start Scan';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  Actions
+// ═══════════════════════════════════════════════════════════════════════
+
+async function stopScan(scanId) {
+  if (!scanId) {
+    showToast('Invalid scan ID', 'error');
+    return;
+  }
+  if (!confirm('Stop this scan?')) return;
+  try {
+    await fetch('/api/scan/' + encodeURIComponent(scanId) + '/stop',
+               {method: 'POST'});
+    showToast('Scan stopped', 'success');
+    loadScans();
+  } catch (e) {
+    showToast('Failed to stop scan', 'error');
+  }
+}
+
+async function stopAll() {
+  if (!confirm('Stop ALL running scans?')) return;
+  try {
+    const r = await fetch('/api/scans/stop-all', {method: 'POST'});
+    const data = await r.json();
+    showToast(`Stopped ${data.stopped} scan(s)`, 'success');
+    loadScans();
+  } catch (e) {
+    showToast('Failed to stop scans', 'error');
+  }
+}
+
+async function deleteScan(scanId) {
+  if (!scanId) {
+    showToast('Invalid scan ID', 'error');
+    return;
+  }
+  if (!confirm('Delete this scan? This cannot be undone.')) return;
+  try {
+    const r = await fetch('/api/scans/' + encodeURIComponent(scanId),
+                        {method: 'DELETE'});
+    const data = await r.json();
+    if (data.ok) {
+      showToast('Scan deleted', 'success');
+      loadScans();
+    } else {
+      showToast(data.error || 'Delete failed', 'error');
+    }
+  } catch (e) {
+    showToast('Delete failed', 'error');
+  }
+}
+
+function esc(s) {
+  if (s === null || s === undefined) return '';
+  return String(s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') hideNewScanModal();
+});
+
+loadScans();
+refreshInterval = setInterval(loadScans, 5000);
+</script>
+{% endblock %}

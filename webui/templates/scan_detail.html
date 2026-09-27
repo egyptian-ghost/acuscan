@@ -1,0 +1,1135 @@
+{% extends "base_v2.html" %}
+{% block title %}Scan #{{ scan_id }}{% endblock %}
+{% block page_title %}<span id="scan-title">Scan Details</span>{% endblock %}
+{% block page_subtitle %}<span id="scan-subtitle">Loading...</span>{% endblock %}
+
+{% block topbar_actions %}
+<span id="live-indicator" class="live-badge live-off">Offline</span>
+<button class="btn btn-danger btn-sm" id="stop-btn"
+        onclick="stopScan()" style="display:none;">
+  ⏹ Stop Scan
+</button>
+<button class="btn btn-primary btn-sm" id="resume-btn"
+        onclick="resumeScan()" style="display:none;">
+  ▶ Resume
+</button>
+<button class="btn btn-secondary btn-sm" onclick="exportReport()">
+  📥 Export
+</button>
+{% endblock %}
+
+{% block head %}
+<style>
+.tabs-nav {
+  display: flex; gap: 4px; border-bottom: 1px solid var(--border-subtle);
+  margin-bottom: 24px; overflow-x: auto; padding-bottom: 0;
+}
+.tabs-nav .tab {
+  padding: 12px 20px; background: transparent; border: none;
+  color: var(--text-tertiary); cursor: pointer; font-size: 13px;
+  font-weight: 600; border-bottom: 2px solid transparent;
+  transition: all var(--t-fast); white-space: nowrap;
+  font-family: inherit; display: flex; align-items: center; gap: 8px;
+}
+.tabs-nav .tab:hover { color: var(--text-secondary); }
+.tabs-nav .tab.active {
+  color: var(--accent); border-bottom-color: var(--accent);
+}
+.tabs-nav .tab .badge-count {
+  padding: 2px 8px; border-radius: var(--r-full);
+  background: var(--bg-hover); color: var(--text-tertiary);
+  font-size: 10px; font-weight: 700;
+}
+.tabs-nav .tab.active .badge-count {
+  background: var(--accent-soft); color: var(--accent);
+}
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+
+.kv-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+.kv-item {
+  padding: 14px 18px; background: var(--bg-surface-overlay);
+  border-radius: var(--r-md); border: 1px solid var(--border-subtle);
+}
+.kv-label {
+  font-size: 10px; color: var(--text-tertiary);
+  text-transform: uppercase; letter-spacing: 1.2px;
+  font-weight: 800; margin-bottom: 6px;
+}
+.kv-value {
+  font-size: 13.5px; color: var(--text-primary);
+  font-family: var(--font-mono); word-break: break-all;
+  line-height: 1.5;
+}
+.kv-value.ok { color: var(--success); }
+.kv-value.err { color: var(--danger); }
+.kv-value.warn { color: var(--warning); }
+
+.warning-banner {
+  padding: 16px; background: var(--warning-soft);
+  border-left: 4px solid var(--warning);
+  border-radius: var(--r-md); margin-top: 16px;
+}
+.warning-banner .title {
+  font-weight: 700; color: var(--warning);
+  display: flex; align-items: center; gap: 8px; font-size: 14px;
+}
+.warning-banner .body {
+  color: var(--text-secondary); font-size: 13px;
+  margin-top: 8px; line-height: 1.6;
+}
+.warning-banner ul { margin: 8px 0 0 20px; padding: 0; }
+
+.danger-banner {
+  padding: 16px; background: var(--danger-soft);
+  border-left: 4px solid var(--danger);
+  border-radius: var(--r-md); margin-top: 16px;
+}
+.danger-banner .title {
+  font-weight: 700; color: var(--danger);
+  display: flex; align-items: center; gap: 8px; font-size: 14px;
+}
+.danger-banner .body {
+  color: var(--text-secondary); font-size: 13px;
+  margin-top: 8px; line-height: 1.6;
+}
+.danger-banner ul { margin: 8px 0 0 20px; padding: 0; }
+
+.tree {
+  font-family: var(--font-mono); font-size: 13px;
+  background: var(--bg-input); border-radius: var(--r-md);
+  padding: 20px; max-height: 600px; overflow-y: auto;
+  border: 1px solid var(--border-subtle);
+}
+.tree-node { padding: 3px 0; line-height: 1.6; }
+.tree-node.directory { color: var(--accent); font-weight: 600; }
+.tree-node.file { color: var(--text-secondary); }
+.tree-node.file:hover { color: var(--accent); }
+.tree-node .status-code {
+  display: inline-block; padding: 1px 6px; border-radius: var(--r-sm);
+  font-size: 10px; font-weight: 700; margin-right: 8px;
+}
+.status-2xx { background: var(--success-soft); color: var(--success); }
+.status-3xx { background: var(--info-soft); color: var(--info); }
+.status-4xx { background: var(--warning-soft); color: var(--warning); }
+.status-5xx { background: var(--danger-soft); color: var(--danger); }
+.status-0 { background: var(--bg-hover); color: var(--text-tertiary); }
+
+.tech-badge {
+  display: inline-block; padding: 6px 14px; border-radius: var(--r-full);
+  background: var(--bg-surface-overlay); border: 1px solid var(--border-subtle);
+  color: var(--text-secondary); font-size: 12px; font-weight: 600;
+  margin: 4px 6px 4px 0;
+}
+.tech-badge .cat {
+  color: var(--text-tertiary); font-size: 10px;
+  text-transform: uppercase; margin-left: 6px;
+}
+
+.sec-header-present {
+  padding: 10px 14px; background: var(--success-soft);
+  border-left: 3px solid var(--success); border-radius: var(--r-sm);
+  margin-bottom: 8px; font-size: 12.5px;
+}
+.sec-header-missing {
+  padding: 10px 14px; background: var(--danger-soft);
+  border-left: 3px solid var(--danger); border-radius: var(--r-sm);
+  margin-bottom: 8px; font-size: 12.5px;
+}
+.sec-header-name { color: var(--text-primary); font-weight: 700; }
+.sec-header-val {
+  color: var(--text-secondary); font-family: var(--font-mono);
+  font-size: 11.5px; margin-top: 4px; word-break: break-all;
+}
+
+.activity-item {
+  display: flex; gap: 16px; padding: 16px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.activity-item:last-child { border-bottom: none; }
+.activity-icon {
+  font-size: 20px; width: 40px; height: 40px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg-surface-overlay); border-radius: 50%;
+  border: 1px solid var(--border-subtle); flex-shrink: 0;
+}
+.activity-body { flex: 1; }
+.activity-title {
+  font-size: 14px; font-weight: 700; color: var(--text-primary);
+  margin-bottom: 4px;
+}
+.activity-desc { font-size: 13px; color: var(--text-secondary); line-height: 1.5; }
+.activity-time {
+  font-size: 11px; color: var(--text-tertiary);
+  font-family: var(--font-mono); margin-top: 4px;
+}
+
+.empty-state {
+  text-align: center; padding: 60px 20px; color: var(--text-tertiary);
+}
+.empty-state .icon { font-size: 48px; margin-bottom: 16px; opacity: 0.5; }
+.empty-state h3 { color: var(--text-secondary); margin-bottom: 8px; }
+.empty-state pre {
+  text-align: left; background: var(--bg-input);
+  padding: 12px; border-radius: var(--r-md);
+  font-size: 11px; overflow: auto; max-height: 200px;
+  margin-top: 12px; color: var(--text-secondary);
+}
+
+.loading-inline {
+  text-align: center; padding: 40px; color: var(--text-tertiary);
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<input type="hidden" id="scan-id" value="{{ scan_id }}">
+
+<div class="stats-grid" id="summary-stats">
+  <div class="stat-card stat-total">
+    <div class="stat-header"><span class="stat-icon">🎯</span><span>Findings</span></div>
+    <div class="stat-value" id="sum-findings">0</div>
+    <div class="stat-trend" id="sum-verified">—</div>
+  </div>
+  <div class="stat-card stat-critical">
+    <div class="stat-header"><span class="stat-icon">🔴</span><span>Critical</span></div>
+    <div class="stat-value" id="sum-critical">0</div>
+  </div>
+  <div class="stat-card stat-high">
+    <div class="stat-header"><span class="stat-icon">🟠</span><span>High</span></div>
+    <div class="stat-value" id="sum-high">0</div>
+  </div>
+  <div class="stat-card stat-medium">
+    <div class="stat-header"><span class="stat-icon">🟡</span><span>Medium</span></div>
+    <div class="stat-value" id="sum-medium">0</div>
+  </div>
+  <div class="stat-card stat-low">
+    <div class="stat-header"><span class="stat-icon">🔵</span><span>Low</span></div>
+    <div class="stat-value" id="sum-low">0</div>
+  </div>
+  <div class="stat-card stat-info">
+    <div class="stat-header"><span class="stat-icon">⚪</span><span>Info</span></div>
+    <div class="stat-value" id="sum-info">0</div>
+  </div>
+</div>
+
+<div class="tabs-nav">
+  <button class="tab active" onclick="switchTab('summary', this)">📋 Summary</button>
+  <button class="tab" onclick="switchTab('findings', this)">
+    🚨 Vulnerabilities <span class="badge-count" id="tab-findings-count">0</span>
+  </button>
+  <button class="tab" onclick="switchTab('crawl', this)">
+    🕷 Crawl Map <span class="badge-count" id="tab-crawl-count">0</span>
+  </button>
+  <button class="tab" onclick="switchTab('server', this)">🖥 Server Info</button>
+  <button class="tab" onclick="switchTab('statistics', this)">📊 Statistics</button>
+  <button class="tab" onclick="switchTab('activity', this)">🕐 Activity</button>
+</div>
+
+<div id="panel-summary" class="tab-panel active">
+  <div class="card">
+    <div class="card-header"><h2 class="card-title">📋 Scan Summary</h2></div>
+    <div class="kv-grid" id="summary-kv">
+      <div class="loading-inline">Loading...</div>
+    </div>
+  </div>
+  <div id="quick-finish-warning"></div>
+  <div class="card" id="login-test-summary-card" style="display:none;">
+    <div class="card-header"><h2 class="card-title">🔐 Login Test Result</h2></div>
+    <div id="login-test-summary"></div>
+  </div>
+</div>
+
+<div id="panel-findings" class="tab-panel">
+  <div class="filter-bar">
+    <input type="text" id="findings-search" placeholder="🔍 Search findings..." oninput="renderFindings()">
+    <select id="findings-sev" onchange="renderFindings()">
+      <option value="">All severities</option>
+      <option>critical</option><option>high</option><option>medium</option>
+      <option>low</option><option>info</option>
+    </select>
+    <select id="findings-verified" onchange="renderFindings()">
+      <option value="">All</option>
+      <option value="1">✓ Verified</option>
+      <option value="0">✗ Unverified</option>
+    </select>
+    <span id="findings-count-badge" class="count-badge">0</span>
+  </div>
+  <div class="table-card">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th style="width:110px;">Severity</th>
+          <th>Name</th><th>URL</th>
+          <th style="width:120px;">Confidence</th>
+          <th style="width:100px;">Verified</th>
+          <th style="width:100px;">Actions</th>
+        </tr>
+      </thead>
+      <tbody id="findings-body">
+        <tr><td colspan="6" class="empty-cell">Loading...</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div id="panel-crawl" class="tab-panel">
+  <div class="filter-bar">
+    <input type="text" id="crawl-search" placeholder="🔍 Filter URLs..." oninput="renderCrawl()">
+    <select id="crawl-type" onchange="renderCrawl()">
+      <option value="">All URLs</option>
+      <option value="internal">Internal only</option>
+      <option value="external">External only</option>
+      <option value="with_forms">With forms</option>
+      <option value="with_params">With parameters</option>
+    </select>
+    <span id="crawl-count-badge" class="count-badge">0</span>
+    <button class="btn btn-secondary btn-sm" onclick="toggleCrawlView()">
+      <span id="crawl-view-icon">🌳</span>
+      <span id="crawl-view-text">Tree View</span>
+    </button>
+  </div>
+  <div class="card" id="crawl-tree-card">
+    <div class="card-header"><h2 class="card-title">🌳 Site Tree</h2></div>
+    <div class="tree" id="crawl-tree">
+      <div class="loading-inline">Loading crawl map...</div>
+    </div>
+  </div>
+  <div class="table-card" id="crawl-table-card" style="display:none;">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th style="width:80px;">Status</th><th>URL</th>
+          <th style="width:150px;">Content Type</th>
+          <th style="width:100px;">Size</th>
+          <th style="width:80px;">Depth</th>
+          <th style="width:100px;">Time</th>
+        </tr>
+      </thead>
+      <tbody id="crawl-table-body">
+        <tr><td colspan="6" class="empty-cell">Loading...</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div id="panel-server" class="tab-panel">
+  <div id="server-info-content">
+    <div class="loading-inline">Loading server info...</div>
+  </div>
+</div>
+
+<div id="panel-statistics" class="tab-panel">
+  <div id="statistics-content">
+    <div class="loading-inline">Loading statistics...</div>
+  </div>
+</div>
+
+<div id="panel-activity" class="tab-panel">
+  <div class="card">
+    <div class="card-header"><h2 class="card-title">🕐 Activity Timeline</h2></div>
+    <div id="activity-content">
+      <div class="loading-inline">Loading activity...</div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const SCAN_ID = document.getElementById('scan-id').value;
+let FINDINGS = [];
+let CRAWL_MAP = [];
+let SERVER_INFO = {};
+let LOGIN_TEST = {};
+let STATISTICS = {};
+let SCAN_DATA = {};
+let crawlViewMode = 'tree';
+let refreshTimer = null;
+
+// ═══════════════════════════════════════════════════════════════════════
+//  Tab switching (with lazy loading)
+// ═══════════════════════════════════════════════════════════════════════
+
+function switchTab(name, btn) {
+  document.querySelectorAll('.tabs-nav .tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  const panel = document.getElementById('panel-' + name);
+  if (panel) panel.classList.add('active');
+
+  if (name === 'crawl' && CRAWL_MAP.length === 0) loadCrawlMap();
+  if (name === 'server' && !SERVER_INFO.server) loadServerInfo();
+  if (name === 'statistics' && !STATISTICS.scan) loadStatistics();
+  if (name === 'activity') loadActivity();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  Load Summary
+// ═══════════════════════════════════════════════════════════════════════
+
+async function loadAll() {
+  await loadSummary();
+  await loadFindings();
+}
+
+async function loadSummary() {
+  try {
+    const r = await fetch('/api/v1/scans/' + encodeURIComponent(SCAN_ID) + '/statistics');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    STATISTICS = data;
+
+    const scan = data.scan || {};
+    const findings = data.findings || {};
+    const crawl = data.crawl || {};
+    SCAN_DATA = scan;
+
+    document.getElementById('scan-title').textContent = `Scan #${scan.id || '?'}`;
+    document.getElementById('scan-subtitle').textContent =
+      (scan.targets || []).join(', ') || 'No targets';
+
+    // Live indicator
+    const liveEl = document.getElementById('live-indicator');
+    const isRunning = scan.status === 'running' || scan.status === 'pending';
+
+    if (isRunning) {
+      liveEl.className = 'live-badge live-on';
+      liveEl.textContent = 'Live';
+      document.getElementById('stop-btn').style.display = 'inline-flex';
+      document.getElementById('resume-btn').style.display = 'none';
+      if (!refreshTimer) {
+        refreshTimer = setInterval(loadSummary, 5000);
+      }
+    } else {
+      liveEl.className = 'live-badge live-off';
+      liveEl.textContent = scan.status || 'Offline';
+      document.getElementById('stop-btn').style.display = 'none';
+
+      if (['stopped', 'failed'].includes(scan.status)) {
+        document.getElementById('resume-btn').style.display = 'inline-flex';
+      } else if (scan.status === 'completed' &&
+                 (scan.request_count || 0) < 500) {
+        document.getElementById('resume-btn').style.display = 'inline-flex';
+      } else {
+        document.getElementById('resume-btn').style.display = 'none';
+      }
+
+      if (refreshTimer) {
+        clearInterval(refreshTimer);
+        refreshTimer = null;
+      }
+    }
+
+    // Summary stats
+    document.getElementById('sum-findings').textContent = findings.total || 0;
+    document.getElementById('sum-verified').textContent =
+      `${findings.verified || 0} verified`;
+    document.getElementById('sum-critical').textContent =
+      (findings.by_severity || {}).critical || 0;
+    document.getElementById('sum-high').textContent =
+      (findings.by_severity || {}).high || 0;
+    document.getElementById('sum-medium').textContent =
+      (findings.by_severity || {}).medium || 0;
+    document.getElementById('sum-low').textContent =
+      (findings.by_severity || {}).low || 0;
+    document.getElementById('sum-info').textContent =
+      (findings.by_severity || {}).info || 0;
+
+    document.getElementById('tab-findings-count').textContent = findings.total || 0;
+
+    // Summary KV
+    const kvHtml = [];
+    kvHtml.push(kvItem('Status', scan.status || '-',
+                       scan.status === 'completed' ? 'ok' : ''));
+    kvHtml.push(kvItem('Targets', (scan.targets || []).join(', ') || '-'));
+    kvHtml.push(kvItem('Started', (scan.started_at || '-').substring(0, 19).replace('T', ' ')));
+    kvHtml.push(kvItem('Finished', (scan.finished_at || '-').substring(0, 19).replace('T', ' ') || '-'));
+    kvHtml.push(kvItem('Duration', (scan.duration_seconds || 0).toFixed(1) + 's'));
+    kvHtml.push(kvItem('Total Requests', scan.request_count || 0));
+    kvHtml.push(kvItem('Errors', scan.error_count || 0,
+                       (scan.error_count || 0) > 0 ? 'warn' : ''));
+    kvHtml.push(kvItem('Requests/Second', scan.requests_per_second || 0));
+
+    document.getElementById('summary-kv').innerHTML = kvHtml.join('');
+
+    renderQuickFinishWarning(scan, findings, crawl);
+
+    if (data.login_test !== undefined || LOGIN_TEST.reason) {
+      showLoginTestSummary();
+    }
+  } catch (e) {
+    console.error('loadSummary failed:', e);
+    document.getElementById('summary-kv').innerHTML =
+      `<div class="empty-state" style="color:var(--danger);">
+        <div class="icon">⚠️</div>
+        <h3>Failed to load summary</h3>
+        <pre>${esc(e.message)}</pre>
+      </div>`;
+  }
+}
+
+function renderQuickFinishWarning(scan, findings, crawl) {
+  const container = document.getElementById('quick-finish-warning');
+  if (!container) return;
+  container.innerHTML = '';
+
+  const requestCount = scan.request_count || 0;
+  const crawlInternal = (crawl && crawl.internal) || 0;
+
+  if (scan.status !== 'completed') return;
+
+  if (requestCount === 0) {
+    container.innerHTML = `
+      <div class="danger-banner">
+        <div class="title">❌ Scan made ZERO requests</div>
+        <div class="body">
+          The scan completed without making any HTTP requests. Check:
+          <ul>
+            <li>Target is reachable</li>
+            <li>No WAF/firewall blocked all requests</li>
+            <li>DNS resolution works</li>
+            <li>Cookies/auth headers are valid</li>
+          </ul>
+        </div>
+      </div>`;
+    return;
+  }
+
+  if (requestCount < 500 || crawlInternal < 50) {
+    container.innerHTML = `
+      <div class="warning-banner">
+        <div class="title">⚠️ Scan finished quickly</div>
+        <div class="body">
+          Only <strong>${requestCount}</strong> requests were made and
+          <strong>${crawlInternal}</strong> internal URLs were crawled.
+          The scan may not have covered the entire site.
+          <br><br>
+          <strong>To get better coverage:</strong>
+          <ul>
+            <li>Increase <strong>Crawl Depth</strong> to 5+</li>
+            <li>Increase <strong>Max Pages</strong> to 500+</li>
+            <li>Verify cookies/auth are correct</li>
+            <li>Check if the target has a sitemap.xml</li>
+          </ul>
+        </div>
+      </div>`;
+  }
+}
+
+async function showLoginTestSummary() {
+  try {
+    const r = await fetch('/api/v1/scans/' + encodeURIComponent(SCAN_ID) + '/login-test');
+    LOGIN_TEST = await r.json();
+    if (!LOGIN_TEST || !LOGIN_TEST.reason) return;
+
+    document.getElementById('login-test-summary-card').style.display = 'block';
+    const success = LOGIN_TEST.success;
+    const conf = Math.round((LOGIN_TEST.confidence || 0) * 100);
+
+    let html = '<div class="kv-grid">';
+    html += kvItem('Result', success ? '✓ SUCCESS' : '✗ FAILED',
+                   success ? 'ok' : 'err');
+    html += kvItem('Confidence', conf + '%');
+    html += kvItem('Reason', LOGIN_TEST.reason || '-');
+    if (LOGIN_TEST.cookies_added && LOGIN_TEST.cookies_added.length) {
+      html += kvItem('Cookies Added', LOGIN_TEST.cookies_added.join(', '));
+    }
+    if (LOGIN_TEST.response_status) {
+      html += kvItem('Response Status', LOGIN_TEST.response_status);
+    }
+    html += '</div>';
+
+    document.getElementById('login-test-summary').innerHTML = html;
+  } catch (e) {}
+}
+
+function kvItem(label, value, cls) {
+  return `<div class="kv-item">
+    <div class="kv-label">${esc(label)}</div>
+    <div class="kv-value ${cls || ''}">${esc(String(value))}</div>
+  </div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  Findings
+// ═══════════════════════════════════════════════════════════════════════
+
+async function loadFindings() {
+  try {
+    const r = await fetch('/api/v1/scans/' + encodeURIComponent(SCAN_ID) + '/findings');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    FINDINGS = data.findings || [];
+    renderFindings();
+  } catch (e) {
+    document.getElementById('findings-body').innerHTML =
+      `<tr><td colspan="6" class="empty-cell" style="color:var(--danger);">
+        Error: ${esc(e.message)}
+      </td></tr>`;
+  }
+}
+
+function renderFindings() {
+  const q = (document.getElementById('findings-search').value || '').toLowerCase();
+  const sev = document.getElementById('findings-sev').value;
+  const verified = document.getElementById('findings-verified').value;
+
+  let rows = FINDINGS.filter(f => {
+    if (sev && f.severity !== sev) return false;
+    if (verified === '1' && !f.verified) return false;
+    if (verified === '0' && f.verified) return false;
+    if (q) {
+      const hay = ((f.name||'') + ' ' + (f.url||'') + ' ' +
+                   (f.detail||'') + ' ' + (f.cve||'')).toLowerCase();
+      if (hay.indexOf(q) === -1) return false;
+    }
+    return true;
+  });
+
+  document.getElementById('findings-count-badge').textContent =
+    `${rows.length} / ${FINDINGS.length}`;
+
+  const body = document.getElementById('findings-body');
+  if (!rows.length) {
+    body.innerHTML = `<tr><td colspan="6" class="empty-cell">
+      No findings ${FINDINGS.length ? 'match your filters' : 'yet'}
+    </td></tr>`;
+    return;
+  }
+
+  body.innerHTML = rows.map(f => {
+    const conf = f.confidence ? Math.round(f.confidence * 100) : 0;
+    const confClass = conf >= 85 ? 'conf-high' : conf >= 70 ? 'conf-med' : 'conf-low';
+    return `
+      <tr>
+        <td><span class="sev-badge sev-${f.severity}">${f.severity}</span></td>
+        <td><strong style="color:var(--text-primary);font-size:13px;">
+          ${esc(f.name)}
+        </strong></td>
+        <td class="url-cell" style="max-width:340px;font-size:11.5px;">
+          ${esc(f.url)}
+        </td>
+        <td><span class="conf-badge ${confClass}">${conf ? conf + '%' : '—'}</span></td>
+        <td>${f.verified ? '<span class="verified-badge">✓</span>' : '<span class="unverified-badge">—</span>'}</td>
+        <td><a class="btn btn-secondary btn-sm" href="/findings/${f.id}">🔬 View</a></td>
+      </tr>`;
+  }).join('');
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  Crawl Map
+// ═══════════════════════════════════════════════════════════════════════
+
+async function loadCrawlMap() {
+  try {
+    const r = await fetch('/api/v1/scans/' + encodeURIComponent(SCAN_ID) + '/crawl-map');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    CRAWL_MAP = data.crawl_map || [];
+    document.getElementById('tab-crawl-count').textContent = CRAWL_MAP.length;
+    renderCrawl();
+  } catch (e) {
+    document.getElementById('crawl-tree').innerHTML =
+      `<div class="empty-state">Error: ${esc(e.message)}</div>`;
+  }
+}
+
+function toggleCrawlView() {
+  crawlViewMode = crawlViewMode === 'tree' ? 'table' : 'tree';
+  document.getElementById('crawl-view-icon').textContent =
+    crawlViewMode === 'tree' ? '🌳' : '📋';
+  document.getElementById('crawl-view-text').textContent =
+    crawlViewMode === 'tree' ? 'Tree View' : 'Table View';
+  document.getElementById('crawl-tree-card').style.display =
+    crawlViewMode === 'tree' ? 'block' : 'none';
+  document.getElementById('crawl-table-card').style.display =
+    crawlViewMode === 'table' ? 'block' : 'none';
+  renderCrawl();
+}
+
+function renderCrawl() {
+  const q = (document.getElementById('crawl-search').value || '').toLowerCase();
+  const type = document.getElementById('crawl-type').value;
+
+  let rows = CRAWL_MAP.filter(n => {
+    if (type === 'internal' && n.is_external) return false;
+    if (type === 'external' && !n.is_external) return false;
+    if (type === 'with_forms' && (!n.forms || !n.forms.length)) return false;
+    if (type === 'with_params' && (!n.parameters || !n.parameters.length)) return false;
+    if (q) {
+      const hay = ((n.url||'') + ' ' + (n.title||'')).toLowerCase();
+      if (hay.indexOf(q) === -1) return false;
+    }
+    return true;
+  });
+
+  document.getElementById('crawl-count-badge').textContent =
+    `${rows.length} / ${CRAWL_MAP.length}`;
+
+  if (crawlViewMode === 'tree') renderCrawlTree(rows);
+  else renderCrawlTable(rows);
+}
+
+function renderCrawlTree(rows) {
+  if (!rows.length) {
+    document.getElementById('crawl-tree').innerHTML =
+      `<div class="empty-state">
+        <div class="icon">🕷</div>
+        <h3>No URLs to display</h3>
+        <p>The crawl map is empty or filtered</p>
+      </div>`;
+    return;
+  }
+  const root = {};
+  rows.forEach(n => {
+    try {
+      const u = new URL(n.url);
+      const parts = u.pathname.split('/').filter(p => p);
+      if (!parts.length) {
+        root['/'] = root['/'] || { _node: n, _children: {} };
+        return;
+      }
+      let cur = root;
+      parts.forEach((part, i) => {
+        if (!cur[part]) cur[part] = { _children: {} };
+        if (i === parts.length - 1) cur[part]._node = n;
+        cur = cur[part]._children;
+      });
+    } catch (e) {}
+  });
+  document.getElementById('crawl-tree').innerHTML = renderTreeNode(root, 0, '');
+}
+
+function renderTreeNode(node, depth, path) {
+  if (typeof node !== 'object' || node === null) return '';
+  let html = '';
+  for (const [key, val] of Object.entries(node)) {
+    if (key === '_node' || key === '_children') continue;
+    const indent = '&nbsp;&nbsp;&nbsp;&nbsp;'.repeat(depth);
+    const fullPath = path + '/' + key;
+    const hasChildren = val._children && Object.keys(val._children).length > 0;
+    const nodeData = val._node;
+    if (hasChildren || !nodeData) {
+      html += `<div class="tree-node directory">${indent}📁 ${esc(key)}/</div>`;
+      html += renderTreeNode(val._children, depth + 1, fullPath);
+    }
+    if (nodeData) {
+      const status = nodeData.status || 0;
+      const statusClass = status >= 200 && status < 300 ? 'status-2xx'
+                        : status >= 300 && status < 400 ? 'status-3xx'
+                        : status >= 400 && status < 500 ? 'status-4xx'
+                        : status >= 500 ? 'status-5xx' : 'status-0';
+      const title = nodeData.title ? ` — ${esc(nodeData.title.substring(0, 60))}` : '';
+      html += `<div class="tree-node file">
+        ${indent}<span class="status-code ${statusClass}">${status}</span>
+        <a href="${esc(nodeData.url)}" target="_blank"
+           style="color:inherit;text-decoration:none;">${esc(key)}</a>${title}
+      </div>`;
+    }
+  }
+  return html;
+}
+
+function renderCrawlTable(rows) {
+  const body = document.getElementById('crawl-table-body');
+  if (!rows.length) {
+    body.innerHTML = '<tr><td colspan="6" class="empty-cell">No URLs</td></tr>';
+    return;
+  }
+  body.innerHTML = rows.slice(0, 500).map(n => {
+    const status = n.status || 0;
+    const statusClass = status >= 200 && status < 300 ? 'status-2xx'
+                      : status >= 300 && status < 400 ? 'status-3xx'
+                      : status >= 400 && status < 500 ? 'status-4xx'
+                      : status >= 500 ? 'status-5xx' : 'status-0';
+    const size = n.content_length
+      ? (n.content_length > 1024
+         ? (n.content_length / 1024).toFixed(1) + ' KB'
+         : n.content_length + ' B')
+      : '—';
+    return `
+      <tr>
+        <td><span class="status-code ${statusClass}">${status || '—'}</span></td>
+        <td class="url-cell" style="font-size:11.5px;">${esc(n.url)}</td>
+        <td style="font-size:11.5px;">${esc((n.content_type || '—').split(';')[0])}</td>
+        <td style="font-size:12px;">${size}</td>
+        <td style="font-size:12px;">${n.depth || 0}</td>
+        <td style="font-size:12px;">${(n.response_time_ms || 0).toFixed(0)}ms</td>
+      </tr>`;
+  }).join('');
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  Server Info
+// ═══════════════════════════════════════════════════════════════════════
+
+async function loadServerInfo() {
+  try {
+    const r = await fetch('/api/v1/scans/' + encodeURIComponent(SCAN_ID) + '/server-info');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    SERVER_INFO = await r.json();
+    renderServerInfo();
+  } catch (e) {
+    document.getElementById('server-info-content').innerHTML =
+      `<div class="empty-state">Error: ${esc(e.message)}</div>`;
+  }
+}
+
+function renderServerInfo() {
+  const si = SERVER_INFO || {};
+  const container = document.getElementById('server-info-content');
+  if (!si.server && !si.host) {
+    container.innerHTML = `<div class="empty-state">
+      <div class="icon">🖥</div>
+      <h3>No server information available</h3>
+    </div>`;
+    return;
+  }
+  let html = '';
+  html += '<div class="card">';
+  html += '<div class="card-header"><h2 class="card-title">🖥 Server Information</h2></div>';
+  html += '<div class="kv-grid">';
+  html += kvItem('Host', si.host || '—');
+  if (si.ip_addresses && si.ip_addresses.length)
+    html += kvItem('IP Addresses', si.ip_addresses.join(', '));
+  html += kvItem('Port', si.port || '—');
+  html += kvItem('Protocol', (si.protocol || '—').toUpperCase());
+  html += kvItem('Server Software', si.server || 'Unknown');
+  html += kvItem('Powered By', si.powered_by || '—');
+  html += kvItem('Operating System', si.operating_system || 'Unknown');
+  if (si.aspnet_version) html += kvItem('ASP.NET Version', si.aspnet_version);
+  html += kvItem('Response Time', (si.response_time_ms || 0).toFixed(0) + ' ms');
+  html += '</div></div>';
+
+  if (si.cdn || si.reverse_proxy || si.hosting_provider) {
+    html += '<div class="card">';
+    html += '<div class="card-header"><h2 class="card-title">☁️ Infrastructure</h2></div>';
+    html += '<div class="kv-grid">';
+    if (si.cdn) html += kvItem('CDN', si.cdn);
+    if (si.reverse_proxy) html += kvItem('Reverse Proxy', si.reverse_proxy);
+    if (si.hosting_provider) html += kvItem('Hosting', si.hosting_provider);
+    html += '</div></div>';
+  }
+
+  if (si.ssl_enabled) {
+    html += '<div class="card">';
+    html += '<div class="card-header"><h2 class="card-title">🔒 SSL/TLS</h2></div>';
+    html += '<div class="kv-grid">';
+    html += kvItem('Protocol', si.ssl_protocol || '—');
+    html += kvItem('Cipher', si.ssl_cipher || '—');
+    html += kvItem('Issuer', si.ssl_issuer || '—');
+    html += kvItem('Subject', si.ssl_subject || '—');
+    html += kvItem('Expires', (si.ssl_expires || '—').substring(0, 30));
+    if (si.ssl_days_remaining !== undefined) {
+      const days = si.ssl_days_remaining;
+      const cls = days < 0 ? 'err' : days < 30 ? 'warn' : 'ok';
+      html += kvItem('Days Remaining',
+                     days < 0 ? 'EXPIRED' : days + ' days', cls);
+    }
+    html += '</div></div>';
+  }
+
+  html += '<div class="card">';
+  html += '<div class="card-header">';
+  html += '<h2 class="card-title">🛡️ Security Headers</h2>';
+  html += `<span class="count-badge">${Object.keys(si.security_headers || {}).length} present</span>`;
+  html += '</div>';
+
+  const present = si.security_headers || {};
+  if (Object.keys(present).length) {
+    html += '<div style="margin-bottom:20px;">';
+    html += '<h3 style="font-size:13px;color:var(--success);margin-bottom:12px;">✓ Present</h3>';
+    for (const [name, value] of Object.entries(present)) {
+      html += `<div class="sec-header-present">
+        <div class="sec-header-name">${esc(name)}</div>
+        <div class="sec-header-val">${esc(value)}</div>
+      </div>`;
+    }
+    html += '</div>';
+  }
+  const missing = si.missing_security_headers || [];
+  if (missing.length) {
+    html += '<div>';
+    html += '<h3 style="font-size:13px;color:var(--danger);margin-bottom:12px;">✗ Missing</h3>';
+    missing.forEach(h => {
+      html += `<div class="sec-header-missing">
+        <div class="sec-header-name">${esc(h)}</div>
+      </div>`;
+    });
+    html += '</div>';
+  }
+  html += '</div>';
+
+  if (si.technologies && si.technologies.length) {
+    html += '<div class="card">';
+    html += '<div class="card-header"><h2 class="card-title">⚙️ Technologies</h2></div>';
+    html += '<div>';
+    si.technologies.forEach(t => {
+      html += `<span class="tech-badge">
+        ${esc(t.name || 'Unknown')}
+        <span class="cat">${esc(t.category || '')}</span>
+      </span>`;
+    });
+    html += '</div></div>';
+  }
+
+  const allHeaders = si.headers || {};
+  if (Object.keys(allHeaders).length) {
+    html += '<div class="card">';
+    html += '<div class="card-header"><h2 class="card-title">📋 All Response Headers</h2></div>';
+    html += '<div class="tree" style="font-size:12px;">';
+    for (const [k, v] of Object.entries(allHeaders)) {
+      html += `<div><span style="color:var(--accent);">${esc(k)}</span>: `;
+      html += `<span style="color:var(--text-secondary);">${esc(v)}</span></div>`;
+    }
+    html += '</div></div>';
+  }
+
+  container.innerHTML = html;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  Statistics — ROBUST ERROR HANDLING
+// ═══════════════════════════════════════════════════════════════════════
+
+async function loadStatistics() {
+  const container = document.getElementById('statistics-content');
+  if (!container) return;
+
+  container.innerHTML =
+    '<div class="loading-inline">Loading statistics...</div>';
+
+  try {
+    const url = '/api/v1/scans/' + encodeURIComponent(SCAN_ID) + '/statistics';
+    console.log('[stats] fetching:', url);
+
+    const r = await fetch(url, {
+      headers: {'Accept': 'application/json'}
+    });
+
+    if (!r.ok) {
+      let errText = '';
+      try { errText = await r.text(); } catch (e) {}
+      throw new Error(
+        `HTTP ${r.status} ${r.statusText}\n` +
+        (errText ? 'Response: ' + errText.substring(0, 300) : '')
+      );
+    }
+
+    const ct = r.headers.get('content-type') || '';
+    if (!ct.includes('application/json')) {
+      const text = await r.text();
+      console.error('[stats] Non-JSON response:', text.substring(0, 500));
+      throw new Error(
+        `Expected JSON, got: ${ct}\n` +
+        `Body: ${text.substring(0, 300)}`
+      );
+    }
+
+    STATISTICS = await r.json();
+    console.log('[stats] OK:', STATISTICS);
+
+    if (!STATISTICS || !STATISTICS.scan) {
+      container.innerHTML = `
+        <div class="empty-state">
+          <div class="icon">📊</div>
+          <h3>No statistics available</h3>
+          <p>The scan may have incomplete data or the scan_id is invalid.</p>
+          <p style="font-size:11px;color:var(--text-tertiary);margin-top:12px;">
+            Scan ID: ${esc(SCAN_ID)}
+          </p>
+        </div>`;
+      return;
+    }
+
+    renderStatistics();
+  } catch (e) {
+    console.error('[stats] Failed:', e);
+    container.innerHTML = `
+      <div class="empty-state" style="color:var(--danger);">
+        <div class="icon">⚠️</div>
+        <h3>Failed to load statistics</h3>
+        <pre>${esc(e.message)}</pre>
+        <button class="btn btn-primary" onclick="loadStatistics()"
+          style="margin-top:16px;">🔄 Retry</button>
+      </div>`;
+  }
+}
+
+function renderStatistics() {
+  const s = STATISTICS || {};
+  const scan = s.scan || {};
+  const findings = s.findings || {};
+  const crawl = s.crawl || {};
+  const container = document.getElementById('statistics-content');
+
+  let html = '';
+  html += '<div class="card">';
+  html += '<div class="card-header"><h2 class="card-title">📊 Request Statistics</h2></div>';
+  html += '<div class="kv-grid">';
+  html += kvItem('Total Requests', scan.request_count || 0);
+  html += kvItem('Failed Requests', scan.error_count || 0,
+                 (scan.error_count || 0) > 0 ? 'warn' : '');
+  html += kvItem('Duration', (scan.duration_seconds || 0).toFixed(1) + 's');
+  html += kvItem('Requests/Second', scan.requests_per_second || 0);
+  html += '</div></div>';
+
+  if (crawl.total) {
+    html += '<div class="card">';
+    html += '<div class="card-header"><h2 class="card-title">🕷 Crawl Statistics</h2></div>';
+    html += '<div class="kv-grid">';
+    html += kvItem('Total URLs', crawl.total || 0);
+    html += kvItem('Internal URLs', crawl.internal || 0, 'ok');
+    html += kvItem('External URLs', crawl.external || 0);
+    html += kvItem('With Forms', crawl.with_forms || 0);
+    html += kvItem('With Parameters', crawl.with_params || 0);
+    html += kvItem('Avg Response Time',
+                   (crawl.avg_response_time_ms || 0).toFixed(0) + ' ms');
+    html += '</div>';
+
+    const statuses = crawl.status_codes || {};
+    if (Object.keys(statuses).length) {
+      html += '<h3 style="font-size:13px;color:var(--text-tertiary);';
+      html += 'text-transform:uppercase;letter-spacing:1px;font-weight:800;';
+      html += 'margin:24px 0 12px 0;">Status Codes</h3>';
+      html += '<div class="kv-grid">';
+      for (const [code, count] of Object.entries(statuses).sort()) {
+        html += kvItem('HTTP ' + code, count);
+      }
+      html += '</div>';
+    }
+
+    const types = crawl.content_types || {};
+    if (Object.keys(types).length) {
+      html += '<h3 style="font-size:13px;color:var(--text-tertiary);';
+      html += 'text-transform:uppercase;letter-spacing:1px;font-weight:800;';
+      html += 'margin:24px 0 12px 0;">Content Types</h3>';
+      html += '<div class="kv-grid">';
+      for (const [ct, count] of Object.entries(types).sort((a, b) => b[1] - a[1])) {
+        html += kvItem(ct || 'unknown', count);
+      }
+      html += '</div>';
+    }
+    html += '</div>';
+  }
+
+  const bySev = findings.by_severity || {};
+  html += '<div class="card">';
+  html += '<div class="card-header"><h2 class="card-title">🚨 Findings Statistics</h2></div>';
+  html += '<div class="kv-grid">';
+  html += kvItem('Total Findings', findings.total || 0);
+  html += kvItem('Verified', findings.verified || 0, 'ok');
+  html += kvItem('Critical', bySev.critical || 0, (bySev.critical || 0) > 0 ? 'err' : '');
+  html += kvItem('High', bySev.high || 0, (bySev.high || 0) > 0 ? 'warn' : '');
+  html += kvItem('Medium', bySev.medium || 0);
+  html += kvItem('Low', bySev.low || 0);
+  html += kvItem('Info', bySev.info || 0);
+  html += '</div></div>';
+
+  container.innerHTML = html;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  Activity
+// ═══════════════════════════════════════════════════════════════════════
+
+async function loadActivity() {
+  try {
+    const r = await fetch('/api/v1/scans/' + encodeURIComponent(SCAN_ID) + '/activity');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    renderActivity(data.activities || []);
+  } catch (e) {
+    document.getElementById('activity-content').innerHTML =
+      `<div class="empty-state">Error: ${esc(e.message)}</div>`;
+  }
+}
+
+function renderActivity(activities) {
+  const container = document.getElementById('activity-content');
+  if (!activities.length) {
+    container.innerHTML = `<div class="empty-state">
+      <div class="icon">🕐</div>
+      <h3>No activity recorded</h3>
+    </div>`;
+    return;
+  }
+  container.innerHTML = activities.map(a => `
+    <div class="activity-item">
+      <div class="activity-icon">${esc(a.icon || '•')}</div>
+      <div class="activity-body">
+        <div class="activity-title">${esc(a.title)}</div>
+        <div class="activity-desc">${esc(a.description || '')}</div>
+        <div class="activity-time">${esc((a.timestamp || '').substring(0, 19).replace('T', ' '))}</div>
+      </div>
+    </div>
+  `).join('');
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  Actions
+// ═══════════════════════════════════════════════════════════════════════
+
+async function stopScan() {
+  if (!confirm('Stop this scan?')) return;
+  try {
+    await fetch('/api/scan/' + encodeURIComponent(SCAN_ID) + '/stop',
+               {method: 'POST'});
+    if (typeof showToast === 'function')
+      showToast('Scan stopping...', 'success');
+    setTimeout(() => window.location.reload(), 800);
+  } catch (e) {
+    if (typeof showToast === 'function')
+      showToast('Failed to stop scan', 'error');
+  }
+}
+
+async function resumeScan() {
+  if (!confirm('Resume this scan from where it stopped?')) return;
+  try {
+    const r = await fetch('/api/scan/' + encodeURIComponent(SCAN_ID) + '/resume',
+                         {method: 'POST'});
+    const data = await r.json();
+    if (data.scan_id) {
+      if (typeof showToast === 'function')
+        showToast(`Resumed — skipped ${data.resumed_from || 0} URLs`, 'success');
+      setTimeout(() => {
+        window.location.href = '/scan/' + data.scan_id;
+      }, 700);
+    } else {
+      if (typeof showToast === 'function')
+        showToast(data.error || 'Resume failed', 'error');
+    }
+  } catch (e) {
+    if (typeof showToast === 'function')
+      showToast('Resume failed: ' + e.message, 'error');
+  }
+}
+
+function exportReport() {
+  window.open('/findings?scan=' + encodeURIComponent(SCAN_ID), '_blank');
+}
+
+function esc(s) {
+  if (s === null || s === undefined) return '';
+  return String(s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  Init
+// ═══════════════════════════════════════════════════════════════════════
+
+loadAll();
+
+window.addEventListener('beforeunload', () => {
+  if (refreshTimer) clearInterval(refreshTimer);
+});
+</script>
+{% endblock %}

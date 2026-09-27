@@ -1,0 +1,343 @@
+{% extends "base_v2.html" %}
+{% block title %}Upload API Spec{% endblock %}
+{% block page_title %}Upload API Specification{% endblock %}
+{% block page_subtitle %}Import OpenAPI / Swagger / Postman files to extract endpoints{% endblock %}
+
+{% block content %}
+
+<div class="card">
+  <div class="card-header">
+    <h2 class="card-title">📁 Upload Specification File</h2>
+  </div>
+
+  <p style="color:var(--text-tertiary);margin-bottom:20px;font-size:13px;
+    line-height:1.6;">
+    Upload an <strong>OpenAPI 3.x</strong>, <strong>Swagger 2.0</strong>, or
+    <strong>Postman Collection</strong> file to automatically extract endpoints
+    for scanning. Supported formats: <code>.json</code>, <code>.yaml</code>,
+    <code>.yml</code>.
+  </p>
+
+  <div class="upload-zone" id="drop-zone"
+    onclick="document.getElementById('file-input').click()">
+    <div class="upload-icon">📤</div>
+    <div class="upload-text">
+      <strong>Click to upload</strong> or drag & drop<br>
+      <span style="font-size:12px;color:var(--text-tertiary);">
+        OpenAPI 3.x, Swagger 2.0, or Postman Collection
+      </span>
+    </div>
+    <input type="file" id="file-input" accept=".json,.yaml,.yml" style="display:none">
+  </div>
+
+  <div id="file-info" style="display:none;margin-top:16px;padding:14px 18px;
+    background:var(--bg-surface-overlay);border-radius:var(--r-md);
+    border:1px solid var(--border-subtle);font-size:13px;">
+    <span id="file-info-text"></span>
+  </div>
+
+  <div style="text-align:center;margin-top:24px;display:flex;gap:12px;
+    justify-content:center;flex-wrap:wrap;">
+    <button class="btn btn-primary" id="parse-btn" onclick="parseFile()" disabled>
+      ▶ Parse & Extract Endpoints
+    </button>
+    <button class="btn btn-secondary" onclick="clearUpload()">Clear</button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     RESULTS
+     ═══════════════════════════════════════════════════════════════════════ -->
+<div id="result-card" class="card" style="display:none;">
+  <div class="card-header">
+    <h2 class="card-title">✓ Extracted Endpoints</h2>
+    <span id="result-count" class="count-badge">0</span>
+  </div>
+
+  <div id="result-summary" style="margin-bottom:20px;padding:14px 18px;
+    background:var(--success-soft);border:1px solid rgba(16,217,119,0.3);
+    border-radius:var(--r-md);color:var(--success);font-size:13px;
+    font-weight:600;"></div>
+
+  <div class="filter-bar">
+    <input type="text" id="endpoint-search"
+      placeholder="🔍 Search endpoints..."
+      oninput="renderEndpoints()">
+    <select id="method-filter" onchange="renderEndpoints()">
+      <option value="">All methods</option>
+      <option>GET</option><option>POST</option><option>PUT</option>
+      <option>DELETE</option><option>PATCH</option><option>OPTIONS</option>
+      <option>HEAD</option>
+    </select>
+    <span id="endpoint-count" class="count-badge">0</span>
+  </div>
+
+  <div class="table-card" style="border:none;margin-top:16px;">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th style="width:90px;">Method</th>
+          <th>URL</th>
+          <th>Summary</th>
+          <th style="width:280px;">Parameters</th>
+        </tr>
+      </thead>
+      <tbody id="endpoints-body">
+        <tr><td colspan="4" class="empty-cell">No endpoints</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div style="text-align:center;margin-top:24px;display:flex;gap:12px;
+    justify-content:center;flex-wrap:wrap;">
+    <button class="btn btn-primary" onclick="useEndpointsForScan()">
+      🎯 Start Scan with These Endpoints
+    </button>
+    <button class="btn btn-secondary" onclick="exportEndpoints()">
+      📄 Export as JSON
+    </button>
+  </div>
+</div>
+
+<style>
+.upload-zone {
+  border: 2px dashed var(--border-default);
+  border-radius: var(--r-lg);
+  padding: 48px 24px;
+  text-align: center;
+  cursor: pointer;
+  transition: all var(--t-base);
+  background: var(--bg-surface-overlay);
+}
+.upload-zone:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  transform: scale(1.005);
+}
+.upload-zone.dragover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 4px var(--accent-glow);
+}
+.upload-icon {
+  font-size: 52px;
+  margin-bottom: 16px;
+  filter: drop-shadow(0 0 20px var(--accent-glow));
+  animation: float 3s ease-in-out infinite;
+}
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+.upload-text {
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.8;
+}
+.method-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: var(--r-sm);
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+.method-get { background: rgba(16, 217, 119, 0.15); color: #10d977; }
+.method-post { background: rgba(77, 141, 255, 0.15); color: #4d8dff; }
+.method-put { background: rgba(245, 165, 36, 0.15); color: #f5a524; }
+.method-delete { background: rgba(244, 63, 94, 0.15); color: #f43f5e; }
+.method-patch { background: rgba(139, 92, 246, 0.15); color: #a78bfa; }
+.method-options, .method-head {
+  background: rgba(123, 139, 168, 0.15); color: #7b8ba8;
+}
+</style>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentFile = null;
+let parsedEndpoints = [];
+
+// ═══ Drag & drop ═══
+const dropZone = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+
+['dragenter', 'dragover'].forEach(evt => {
+  dropZone.addEventListener(evt, (e) => {
+    e.preventDefault();
+    dropZone.classList.add('dragover');
+  });
+});
+['dragleave', 'drop'].forEach(evt => {
+  dropZone.addEventListener(evt, (e) => {
+    e.preventDefault();
+    dropZone.classList.remove('dragover');
+  });
+});
+dropZone.addEventListener('drop', (e) => {
+  const files = e.dataTransfer.files;
+  if (files.length) {
+    fileInput.files = files;
+    handleFileSelect();
+  }
+});
+
+fileInput.addEventListener('change', handleFileSelect);
+
+function handleFileSelect() {
+  const file = fileInput.files[0];
+  if (!file) return;
+
+  currentFile = file;
+  document.getElementById('file-info').style.display = 'block';
+  document.getElementById('file-info-text').innerHTML =
+    `<strong style="color:var(--text-primary);">${esc(file.name)}</strong>
+     <span style="color:var(--text-tertiary);margin-left:12px;">
+       ${(file.size / 1024).toFixed(1)} KB
+     </span>`;
+  document.getElementById('parse-btn').disabled = false;
+}
+
+function clearUpload() {
+  currentFile = null;
+  fileInput.value = '';
+  document.getElementById('file-info').style.display = 'none';
+  document.getElementById('parse-btn').disabled = true;
+  document.getElementById('result-card').style.display = 'none';
+  parsedEndpoints = [];
+}
+
+async function parseFile() {
+  if (!currentFile) return;
+
+  const btn = document.getElementById('parse-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Parsing...';
+
+  try {
+    const formData = new FormData();
+    formData.append('file', currentFile);
+
+    const r = await fetch('/api/v1/upload', {
+      method: 'POST',
+      body: formData,
+    });
+
+    const data = await r.json();
+
+    if (data.error) {
+      showToast(data.error, 'error');
+      resetParseBtn();
+      return;
+    }
+
+    parsedEndpoints = data.endpoints || [];
+    renderResult(data);
+    showToast(`Found ${data.endpoints_count} endpoints`, 'success');
+  } catch (e) {
+    showToast('Parse failed: ' + e.message, 'error');
+    resetParseBtn();
+  }
+}
+
+function resetParseBtn() {
+  const btn = document.getElementById('parse-btn');
+  btn.disabled = false;
+  btn.innerHTML = '▶ Parse & Extract Endpoints';
+}
+
+function renderResult(data) {
+  document.getElementById('result-card').style.display = 'block';
+
+  const type = data.detected_type || 'api';
+  document.getElementById('result-summary').innerHTML =
+    `✓ Successfully parsed <strong>${esc(data.filename)}</strong> as
+     <strong>${type.toUpperCase()}</strong> — found
+     <strong>${data.endpoints_count}</strong> endpoint(s)`;
+
+  document.getElementById('result-count').textContent = data.endpoints_count;
+
+  renderEndpoints();
+  document.getElementById('result-card').scrollIntoView({
+    behavior: 'smooth', block: 'start'
+  });
+}
+
+function renderEndpoints() {
+  const q = (document.getElementById('endpoint-search').value || '').toLowerCase();
+  const methodFilter = document.getElementById('method-filter').value;
+
+  let rows = parsedEndpoints.filter(e => {
+    if (methodFilter && e.method !== methodFilter) return false;
+    if (q) {
+      const hay = (e.url + ' ' + (e.summary || '') + ' ' +
+                   (e.params || []).join(' ')).toLowerCase();
+      if (hay.indexOf(q) === -1) return false;
+    }
+    return true;
+  });
+
+  document.getElementById('endpoint-count').textContent =
+    `${rows.length} / ${parsedEndpoints.length}`;
+
+  const body = document.getElementById('endpoints-body');
+  if (!rows.length) {
+    body.innerHTML = '<tr><td colspan="4" class="empty-cell">No endpoints match</td></tr>';
+    return;
+  }
+
+  body.innerHTML = rows.slice(0, 500).map(e => `
+    <tr>
+      <td><span class="method-badge method-${e.method.toLowerCase()}">${e.method}</span></td>
+      <td class="url-cell" style="font-size:11.5px;max-width:400px;">${esc(e.url)}</td>
+      <td style="color:var(--text-secondary);">${esc(e.summary || '—')}</td>
+      <td style="font-family:var(--font-mono);font-size:11px;color:var(--text-tertiary);">
+        ${(e.params || []).map(p => `<code>${esc(p)}</code>`).join(' ')}
+      </td>
+    </tr>
+  `).join('');
+}
+
+function useEndpointsForScan() {
+  if (!parsedEndpoints.length) {
+    showToast('No endpoints to scan', 'error');
+    return;
+  }
+
+  const targets = [...new Set(parsedEndpoints.map(e => {
+    try {
+      const u = new URL(e.url);
+      return `${u.protocol}//${u.host}`;
+    } catch (err) {
+      return e.url.split('/').slice(0, 3).join('/');
+    }
+  }))].filter(Boolean);
+
+  if (!targets.length) {
+    showToast('Could not extract base URLs', 'error');
+    return;
+  }
+
+  sessionStorage.setItem('acuscan_prefill_targets', targets.join('\n'));
+
+  showToast(`Prefilled ${targets.length} target(s). Opening scan...`, 'success');
+  setTimeout(() => {
+    window.location.href = '/scans';
+  }, 800);
+}
+
+function exportEndpoints() {
+  const blob = new Blob([JSON.stringify(parsedEndpoints, null, 2)],
+                        {type: 'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'endpoints.json';
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('Exported endpoints', 'success');
+}
+</script>
+{% endblock %}

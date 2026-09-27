@@ -1,0 +1,444 @@
+{% extends "base_v2.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block page_title %}Security Dashboard{% endblock %}
+{% block page_subtitle %}Real-time overview of your security posture{% endblock %}
+
+{% block topbar_actions %}
+<button class="btn btn-ghost btn-sm" onclick="loadDashboard()" title="Refresh">
+  <span>🔄</span><span>Refresh</span>
+</button>
+<button class="btn btn-primary btn-sm" onclick="window.location.href='/scans'">
+  <span>+</span><span>New Scan</span>
+</button>
+{% endblock %}
+
+{% block content %}
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     STAT CARDS
+     ═══════════════════════════════════════════════════════════════════════ -->
+<div class="stats-grid">
+  <div class="stat-card stat-total">
+    <div class="stat-header">
+      <span class="stat-icon">🎯</span>
+      <span>Total Findings</span>
+    </div>
+    <div class="stat-value" id="s-total">—</div>
+    <div class="stat-trend">across all scans</div>
+  </div>
+
+  <div class="stat-card stat-verified">
+    <div class="stat-header">
+      <span class="stat-icon">✓</span>
+      <span>Verified</span>
+    </div>
+    <div class="stat-value" id="s-verified">—</div>
+    <div class="stat-trend" id="s-verified-ratio">—</div>
+  </div>
+
+  <div class="stat-card stat-critical">
+    <div class="stat-header">
+      <span class="stat-icon">🔴</span>
+      <span>Critical</span>
+    </div>
+    <div class="stat-value" id="s-critical">—</div>
+    <div class="stat-trend">Action required</div>
+  </div>
+
+  <div class="stat-card stat-high">
+    <div class="stat-header">
+      <span class="stat-icon">🟠</span>
+      <span>High</span>
+    </div>
+    <div class="stat-value" id="s-high">—</div>
+    <div class="stat-trend">Review soon</div>
+  </div>
+
+  <div class="stat-card stat-medium">
+    <div class="stat-header">
+      <span class="stat-icon">🟡</span>
+      <span>Medium</span>
+    </div>
+    <div class="stat-value" id="s-medium">—</div>
+  </div>
+
+  <div class="stat-card stat-low">
+    <div class="stat-header">
+      <span class="stat-icon">🔵</span>
+      <span>Low</span>
+    </div>
+    <div class="stat-value" id="s-low">—</div>
+  </div>
+
+  <div class="stat-card stat-info">
+    <div class="stat-header">
+      <span class="stat-icon">⚪</span>
+      <span>Info</span>
+    </div>
+    <div class="stat-value" id="s-info">—</div>
+  </div>
+
+  <div class="stat-card stat-scans">
+    <div class="stat-header">
+      <span class="stat-icon">📋</span>
+      <span>Total Scans</span>
+    </div>
+    <div class="stat-value" id="s-scans">—</div>
+    <div class="stat-trend" id="s-scans-active">—</div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     CHARTS
+     ═══════════════════════════════════════════════════════════════════════ -->
+<div class="charts-row-2-1">
+  <div class="chart-card">
+    <div class="chart-header">
+      <h3>📈 Findings Timeline</h3>
+      <span class="chart-badge">Last 30 Days</span>
+    </div>
+    <div class="chart-body"><canvas id="chart-timeline"></canvas></div>
+  </div>
+
+  <div class="chart-card">
+    <div class="chart-header">
+      <h3>🎯 Severity Distribution</h3>
+    </div>
+    <div class="chart-body"><canvas id="chart-severity"></canvas></div>
+  </div>
+</div>
+
+<div class="charts-grid">
+  <div class="chart-card">
+    <div class="chart-header">
+      <h3>🏆 Top Vulnerability Types</h3>
+    </div>
+    <div class="chart-body"><canvas id="chart-top"></canvas></div>
+  </div>
+
+  <div class="chart-card">
+    <div class="chart-header">
+      <h3>✅ Verification Rate</h3>
+    </div>
+    <div class="chart-body"><canvas id="chart-verification"></canvas></div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     RECENT SCANS
+     ═══════════════════════════════════════════════════════════════════════ -->
+<div class="table-card">
+  <div class="table-header">
+    <h3>📋 Recent Scans</h3>
+    <a href="/scans" class="btn btn-secondary btn-sm">View All →</a>
+  </div>
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Targets</th>
+        <th>Status</th>
+        <th>Findings</th>
+        <th>Duration</th>
+        <th>Started</th>
+        <th style="width:90px;">Actions</th>
+      </tr>
+    </thead>
+    <tbody id="recent-scans-body">
+      <tr><td colspan="7" class="empty-cell">Loading...</td></tr>
+    </tbody>
+  </table>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+let charts = {};
+
+async function loadDashboard() {
+  try {
+    const r = await fetch('/api/v1/dashboard');
+    const data = await r.json();
+
+    const s = data.stats || {};
+    document.getElementById('s-total').textContent = s.total_findings || 0;
+    document.getElementById('s-critical').textContent = s.critical || 0;
+    document.getElementById('s-high').textContent = s.high || 0;
+    document.getElementById('s-medium').textContent = s.medium || 0;
+    document.getElementById('s-low').textContent = s.low || 0;
+    document.getElementById('s-info').textContent = s.info || 0;
+    document.getElementById('s-scans').textContent = s.total_scans || 0;
+
+    const activeCount = (data.scans_status && data.scans_status.running) || 0;
+    document.getElementById('s-scans-active').textContent =
+      activeCount > 0 ? `🟢 ${activeCount} running` : 'All idle';
+
+    const v = data.verification || {};
+    document.getElementById('s-verified').textContent = v.verified || 0;
+    const ratio = v.verified_ratio ? Math.round(v.verified_ratio * 100) : 0;
+    document.getElementById('s-verified-ratio').textContent = ratio + '% verified';
+
+    drawSeverityChart(s);
+    drawTimelineChart(data.timeline || []);
+    drawTopChart(data.top_vulns || []);
+    drawVerificationChart(v);
+    renderRecentScans(data.recent_scans || []);
+  } catch(e) {
+    console.error('Dashboard error:', e);
+    showToast('Failed to load dashboard', 'error');
+  }
+}
+
+function destroyChart(name) {
+  if (charts[name]) { charts[name].destroy(); delete charts[name]; }
+}
+
+function getGridColor() {
+  const theme = document.documentElement.getAttribute('data-theme') || 'dark';
+  return theme === 'light' ? '#e2e8f0' : '#1a2340';
+}
+
+function getTextColor() {
+  const theme = document.documentElement.getAttribute('data-theme') || 'dark';
+  return theme === 'light' ? '#475569' : '#a8b4cc';
+}
+
+function drawSeverityChart(s) {
+  destroyChart('severity');
+  charts.severity = new Chart(document.getElementById('chart-severity'), {
+    type: 'doughnut',
+    data: {
+      labels: ['Critical', 'High', 'Medium', 'Low', 'Info'],
+      datasets: [{
+        data: [s.critical||0, s.high||0, s.medium||0, s.low||0, s.info||0],
+        backgroundColor: ['#ff3b5c', '#ff7849', '#ffb020', '#4d8dff', '#7b8ba8'],
+        borderWidth: 0,
+        hoverOffset: 8,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      cutout: '68%',
+      plugins: {
+        legend: {
+          position: 'bottom',
+          labels: {
+            color: getTextColor(),
+            padding: 14,
+            boxWidth: 12,
+            boxHeight: 12,
+            usePointStyle: true,
+            pointStyle: 'circle',
+            font: { size: 11, weight: '600' }
+          }
+        },
+        tooltip: {
+          backgroundColor: 'rgba(13, 18, 32, 0.95)',
+          borderColor: '#334155',
+          borderWidth: 1,
+          padding: 12,
+          titleColor: '#f1f5fb',
+          bodyColor: '#a8b4cc',
+        }
+      }
+    }
+  });
+}
+
+function drawTimelineChart(timeline) {
+  destroyChart('timeline');
+  const days = [...new Set(timeline.map(t => t.day))].sort();
+  const sevs = ['critical', 'high', 'medium', 'low', 'info'];
+  const colors = {
+    critical: '#ff3b5c', high: '#ff7849', medium: '#ffb020',
+    low: '#4d8dff', info: '#7b8ba8'
+  };
+
+  const datasets = sevs.map(sev => ({
+    label: sev.charAt(0).toUpperCase() + sev.slice(1),
+    data: days.map(d => {
+      const r = timeline.find(t => t.day === d && t.severity === sev);
+      return r ? r.count : 0;
+    }),
+    borderColor: colors[sev],
+    backgroundColor: colors[sev] + '22',
+    tension: 0.4,
+    fill: true,
+    borderWidth: 2.5,
+    pointRadius: 0,
+    pointHoverRadius: 6,
+    pointHoverBackgroundColor: colors[sev],
+    pointHoverBorderColor: '#fff',
+    pointHoverBorderWidth: 2,
+  }));
+
+  charts.timeline = new Chart(document.getElementById('chart-timeline'), {
+    type: 'line',
+    data: { labels: days, datasets: datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { intersect: false, mode: 'index' },
+      plugins: {
+        legend: {
+          position: 'bottom',
+          labels: {
+            color: getTextColor(),
+            boxWidth: 12, boxHeight: 12,
+            usePointStyle: true, pointStyle: 'circle',
+            padding: 14, font: { size: 11, weight: '600' }
+          }
+        },
+        tooltip: {
+          backgroundColor: 'rgba(13, 18, 32, 0.95)',
+          borderColor: '#334155', borderWidth: 1, padding: 12,
+        }
+      },
+      scales: {
+        x: {
+          ticks: { color: getTextColor(), maxRotation: 0, font: { size: 10 } },
+          grid: { color: getGridColor(), drawBorder: false }
+        },
+        y: {
+          ticks: { color: getTextColor(), font: { size: 10 } },
+          grid: { color: getGridColor(), drawBorder: false },
+          beginAtZero: true
+        }
+      }
+    }
+  });
+}
+
+function drawTopChart(top) {
+  destroyChart('top');
+  const colors = {
+    critical: '#ff3b5c', high: '#ff7849', medium: '#ffb020',
+    low: '#4d8dff', info: '#7b8ba8'
+  };
+
+  charts.top = new Chart(document.getElementById('chart-top'), {
+    type: 'bar',
+    data: {
+      labels: top.map(t => t.name.length > 38 ? t.name.slice(0, 38) + '…' : t.name),
+      datasets: [{
+        data: top.map(t => t.count),
+        backgroundColor: top.map(t => colors[t.severity] || '#4d8dff'),
+        borderRadius: 6,
+        borderSkipped: false,
+        barThickness: 18,
+      }]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: 'rgba(13, 18, 32, 0.95)',
+          borderColor: '#334155', borderWidth: 1, padding: 12,
+        }
+      },
+      scales: {
+        x: {
+          ticks: { color: getTextColor(), font: { size: 10 } },
+          grid: { color: getGridColor(), drawBorder: false },
+          beginAtZero: true
+        },
+        y: {
+          ticks: { color: getTextColor(), font: { size: 11 } },
+          grid: { display: false }
+        }
+      }
+    }
+  });
+}
+
+function drawVerificationChart(v) {
+  destroyChart('verification');
+  charts.verification = new Chart(document.getElementById('chart-verification'), {
+    type: 'doughnut',
+    data: {
+      labels: ['Verified', 'Unverified'],
+      datasets: [{
+        data: [v.verified || 0, v.unverified || 0],
+        backgroundColor: ['#10d977', '#334155'],
+        borderWidth: 0,
+        hoverOffset: 8,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      cutout: '68%',
+      plugins: {
+        legend: {
+          position: 'bottom',
+          labels: {
+            color: getTextColor(),
+            boxWidth: 12, boxHeight: 12,
+            usePointStyle: true, pointStyle: 'circle',
+            padding: 14, font: { size: 11, weight: '600' }
+          }
+        }
+      }
+    }
+  });
+}
+
+function renderRecentScans(scans) {
+  const body = document.getElementById('recent-scans-body');
+  if (!scans.length) {
+    body.innerHTML = `<tr><td colspan="7" class="empty-cell">
+      No scans yet. <a href="/scans" style="font-weight:700;">Start your first scan →</a>
+    </td></tr>`;
+    return;
+  }
+
+  body.innerHTML = scans.map(s => `
+    <tr>
+      <td>
+        <a href="/scan/${s.scan_uuid || s.id}" class="link" style="font-weight:700;">
+          #${s.id}
+        </a>
+      </td>
+      <td style="max-width:280px;word-break:break-all;font-size:12.5px;">
+        ${esc((s.targets || []).join(', '))}
+      </td>
+      <td>
+        <span class="status-badge status-${s.status}">
+          ${s.status === 'running' ? '● ' : ''}${s.status}
+        </span>
+      </td>
+      <td>
+        <strong style="font-size:14px;">${s.total_findings || 0}</strong>
+      </td>
+      <td>${s.duration_seconds ? s.duration_seconds.toFixed(1) + 's' : '—'}</td>
+      <td style="font-size:12px;color:var(--text-tertiary);">
+        ${s.started_at ? s.started_at.substring(0, 19).replace('T', ' ') : '—'}
+      </td>
+      <td>
+        <a class="btn btn-secondary btn-sm" href="/scan/${s.scan_uuid || s.id}">
+          View
+        </a>
+      </td>
+    </tr>
+  `).join('');
+}
+
+// ═══ Auto refresh ═══
+loadDashboard();
+setInterval(loadDashboard, 30000);
+
+// Refresh charts when theme changes
+const observer = new MutationObserver(() => {
+  loadDashboard();
+});
+observer.observe(document.documentElement, {
+  attributes: true,
+  attributeFilter: ['data-theme']
+});
+</script>
+{% endblock %}
